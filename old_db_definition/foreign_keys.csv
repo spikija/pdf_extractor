@@ -1,0 +1,7 @@
+﻿table_name,column_name,referenced_table,referenced_column,constraint_name
+clinical_history,case_id,case,id,clinica_history_case_id_fkey
+examinations,case_id,case,id,examinations_case_id_fkey
+family_history,case_id,case,id,family_history_case_id_fkey
+laboratory,case_id,case,id,laboratory_case_id_fkey
+medications,case_id,case,id,medications_case_id_fkey
+radiology,case_id,case,id,radiology_case_id_fkey

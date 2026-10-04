@@ -1,0 +1,13 @@
+﻿table_name,constraint_name,constraint_type,column_name,ordinal_position
+case,case_fallnr_key,UNIQUE,fallnr,1
+case,case_pkey,PRIMARY KEY,id,1
+clinical_history,clinica_history_pkey,PRIMARY KEY,id,1
+examinations,examinations_pkey,PRIMARY KEY,id,1
+family_history,family_history_pkey,PRIMARY KEY,id,1
+laboratory,laboratory_pkey,PRIMARY KEY,id,1
+medications,medications_pkey,PRIMARY KEY,id,1
+radiology,radiology_pkey,PRIMARY KEY,id,1
+sample_users,sample_users_pkey,PRIMARY KEY,id,1
+states,states_pkey,PRIMARY KEY,id,1
+user_access_management,user_access_management_pkey,PRIMARY KEY,id,1
+user_management_software,user_management_software_pkey,PRIMARY KEY,id,1
