@@ -76,3 +76,78 @@ Expected core + provenance tables:
 `case`, `clinical_history`, `examinations`, `extraction_runs`,
 `family_history`, `laboratory`, `medications`, `radiology`,
 `source_documents`, `states`.
+
+## PDF extraction and import
+
+The importer reads PDFs under `pdf_db/<patient_id>/`, writes compact schema 2.0
+JSON into `data/parsed/<patient_id>/`, and stores the same payload in PostgreSQL
+`source_documents.document_json`. Patient ID and relative path are inside the JSON
+`document` object, matching the existing database schema. Each new import adds
+an `extraction_runs` provenance record. The connection comes from `DATABASE_URL`
+in the project `.env` (the environment variable takes precedence).
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+.venv\Scripts\python.exe -m unittest test_pipeline
+.venv\Scripts\python.exe -m caa_pdf_extractor.pdf_ingestion --limit 2 --dry-run
+.venv\Scripts\python.exe -m caa_pdf_extractor.pdf_ingestion
+```
+
+Use `--pdf-root` and `--parsed-root` to override input/output folders.
+`--dry-run` saves JSON without writing to PostgreSQL. Repeated imports skip
+existing SHA-256 hashes; legacy rows with a missing JSON payload are repaired.
+Identical PDF bytes share one database record under the existing unique hash
+constraint. Failed files do not stop the remaining imports, and any failure
+produces a nonzero process exit code.
+
+This stage extracts native text, headings and tables; it does not populate the
+clinical tables (`case`, `laboratory`, etc.) with interpreted medical fields.
+Pages without text are counted and marked `needs_ocr` in the extraction run;
+OCR is not currently implemented. Database tables must already exist (apply
+`alembic upgrade head` for a new database).
+
+## Patient document preparation
+
+`caa_pdf_extractor.preparation` builds a deterministic, derived patient bundle
+from all `source_documents` whose JSON metadata contains the requested
+`document.patient_id`. Documents are ordered by source document ID and remain
+separate. Preparation performs database reads only; parsed source JSON and
+clinical tables are not modified. No LLM or clinical row extraction is involved.
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+.venv\Scripts\python.exe -m unittest test_preparation test_pipeline
+.venv\Scripts\python.exe -m caa_pdf_extractor.preparation.patient_bundle 2473679415
+```
+
+The command saves `data/prepared/2473679415.json` and prints only patient ID,
+document count/types, section counts, candidate target counts, and table count.
+Use `--output <path>` for another destination. The Python API is
+`build_patient_bundle(patient_id)`; its result supports `.to_dict()`.
+
+Sections use detected headings that can be located as whole lines in the
+original text. Unmatched headings are ignored; pages without usable headings
+receive page fallback sections. Sections stay within a page, including when
+a logical topic continues on the next page. Each section includes patient ID,
+source document ID, stable section ID, and page start/end. Concatenating
+`source_text` for a page reconstructs the original page exactly.
+
+`text` is the cleaned extraction representation. Only exact normalized contact
+or website lines seen in the first/last three nonempty lines of at least three
+pages and at least 70% of document pages are excluded. Body occurrences are
+retained. Each exclusion records original text, page, line number, and reason
+in `excluded_noise`. Repeated clinical headings are retained.
+
+Table rows, including empty cells, are copied unchanged. A unique cell-text
+match assigns a table to a section on its page. Without a unique match, the
+table is carried by the first section on that page and explicitly marked
+`page_fallback`; the parsed source has no table coordinates for a geometric
+nearest-section decision. Every table retains its page and source table index.
+
+Document classification requires an explicit report/letter type phrase near
+the start or in first-page headings. Conflicting or absent evidence yields
+`unknown`. Dates require explicit date labels and valid ISO or day.month.year
+values with four-digit years; conflicting dates yield null. Candidate targets
+use headings or short opening lines, are routing hints only, and may be empty
+or contain multiple tables. These conservative rules deliberately leave
+uncertain metadata unset for later extraction.
