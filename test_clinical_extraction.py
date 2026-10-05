@@ -12,6 +12,7 @@ from caa_pdf_extractor.extraction.clinical_history import select_sections, extra
 from caa_pdf_extractor.llm.granite import GraniteClient
 from caa_pdf_extractor.preparation.models import PatientDocumentBundle, PreparedDocument, PreparedSection
 from caa_pdf_extractor.extraction.debug_export import run_debug_record, save_dry_run_debug
+from caa_pdf_extractor.extraction.case_resolver import resolve_case_id, CaseResolutionError
 
 
 def source(doc=1):
@@ -146,7 +147,7 @@ class PipelineTests(unittest.TestCase):
                 self.runs[row.id] = row
         session.add.side_effect = add
         session.get.side_effect = lambda cls, key: self.runs[key]
-        session.execute.return_value.all.return_value = [(123,)]
+        session.execute.return_value.all.return_value = [(12345,)]
         session.scalars.return_value = []
         factory = MagicMock()
         factory.begin.return_value.__enter__.return_value = session
@@ -202,6 +203,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result['inserted'], 1)
         clinical = [row for row in self.added if isinstance(row, ClinicalHistory)]
         self.assertEqual(len(clinical), 1)
+        self.assertEqual(clinical[0].case_id, 12345)
         self.assertEqual(str(clinical[0].date_disease), 'NULL')
         self.assertFalse(list(Path(self.debug_temp.name).rglob('*.json')))
 
@@ -226,15 +228,56 @@ class PipelineTests(unittest.TestCase):
             result = extract_patient('123', dry_run=False,
                                      client=self.client([json.dumps(output())]), session_factory=factory)
         self.assertEqual(result['status'], 'CASE_NOT_FOUND')
-        self.assertEqual(result['case_id'], 123)
+        self.assertIsNone(result['case_id'])
+        self.assertIsNone(result['matched_fallnr'])
         self.assertFalse(result['case_exists'])
         self.assertEqual(result['validated_diagnoses'], 1)
         self.assertEqual(result['new_rows_inserted'], 0)
         self.assertEqual(result['duplicates_skipped'], 0)
         self.assertFalse(any(isinstance(row, ClinicalHistory) for row in self.added))
         statements = [str(call.args[0]) for call in session.execute.call_args_list]
-        self.assertTrue(any('WHERE id = :case_id' in sql for sql in statements))
-        self.assertTrue(all('fallnr' not in sql for sql in statements))
+        self.assertTrue(any('WHERE fallnr = :patient_id' in sql for sql in statements))
+        self.assertFalse(any('WHERE id = :case_id' in sql for sql in statements))
+
+    def test_identical_commits_are_idempotent(self):
+        from caa_pdf_extractor.database.models import ClinicalHistory
+        factory = self.setup_factory()
+        session = factory.begin.return_value.__enter__.return_value
+        session.scalars.side_effect = lambda statement: [row for row in self.added
+                                                        if isinstance(row, ClinicalHistory)]
+        client = self.client([json.dumps(output()), json.dumps(output())])
+        with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
+            first = extract_patient('123', dry_run=False, client=client, session_factory=factory)
+            second = extract_patient('123', dry_run=False, client=client, session_factory=factory)
+        self.assertEqual((first['new_rows_inserted'], first['duplicates_skipped']), (1, 0))
+        self.assertEqual((second['new_rows_inserted'], second['duplicates_skipped']), (0, 1))
+        self.assertEqual(second['patient_id'], '123')
+        self.assertEqual(second['case_id'], 12345)
+        self.assertEqual(second['matched_fallnr'], '123')
+        self.assertTrue(second['case_exists'])
+
+    def test_ambiguous_case_inserts_nothing(self):
+        from caa_pdf_extractor.database.models import ClinicalHistory
+        factory = self.setup_factory()
+        factory.begin.return_value.__enter__.return_value.execute.return_value.all.return_value = [(1,), (2,)]
+        with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
+            result = extract_patient('123', dry_run=False,
+                                     client=self.client([json.dumps(output())]), session_factory=factory)
+        self.assertEqual(result['status'], 'CASE_AMBIGUOUS')
+        self.assertIsNone(result['case_id'])
+        self.assertEqual(result['new_rows_inserted'], 0)
+        self.assertFalse(any(isinstance(row, ClinicalHistory) for row in self.added))
+
+    def test_resolver_preserves_patient_string(self):
+        session = MagicMock()
+        session.execute.return_value.all.return_value = [(12345,)]
+        self.assertEqual(resolve_case_id('2473679415', session=session), 12345)
+        self.assertEqual(session.execute.call_args.args[1], {'patient_id': '2473679415'})
+        for matches, status in [([], 'CASE_NOT_FOUND'), ([(1,), (2,)], 'CASE_AMBIGUOUS')]:
+            session.execute.return_value.all.return_value = matches
+            with self.assertRaises(CaseResolutionError) as caught:
+                resolve_case_id('2473679415', session=session)
+            self.assertEqual(caught.exception.status, status)
 
     def test_no_input_dry_run_still_exports(self):
         factory = self.setup_factory()

@@ -13,6 +13,7 @@ from ..preparation import build_patient_bundle
 from .models import ClinicalHistoryExtraction
 from .validators import parse_json, validate_output, deduplicate, normalize_disease
 from .debug_export import run_debug_record, save_dry_run_debug
+from .case_resolver import resolve_case_id, CaseResolutionError
 
 RELEVANT = re.compile(r"\b(?:diagnos\w*|anamnese|epikrise|beurteilung|zusammenfassung|"
                       r"krankengeschichte|aufenthaltsverlauf|klinischer verlauf)\b", re.I)
@@ -103,21 +104,20 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
     duplicates_skipped = 0
     case_id = None
     case_exists = None
+    matched_fallnr = None
     insertion_status = None
     if not dry_run and failure is None:
-        case_id = int(patient_id)
         with factory.begin() as session:
-            # Serialize imports for a case without changing the schema.
-            session.execute(text("SELECT pg_advisory_xact_lock(:case_id)"), {"case_id": case_id})
-            # Lock the existing parent against deletion until insertion commits.
-            matches = session.execute(text('SELECT id FROM public."case" WHERE id = :case_id FOR KEY SHARE'),
-                                      {"case_id": case_id}).all()
-            case_exists = len(matches) == 1
-            if not matches:
-                insertion_status = "CASE_NOT_FOUND"
-            elif len(matches) != 1:
-                raise RuntimeError("Case primary key lookup returned multiple rows")
+            try:
+                case_id = resolve_case_id(patient_id, session=session)
+            except CaseResolutionError as exc:
+                insertion_status = exc.status
+                case_exists = exc.status == "CASE_AMBIGUOUS"
             else:
+                case_exists = True
+                matched_fallnr = patient_id
+                # Serialize duplicate checks using the resolved internal key.
+                session.execute(text("SELECT pg_advisory_xact_lock(:case_id)"), {"case_id": case_id})
                 existing = {(normalize_disease(row.disease or ""), row.date_disease)
                             for row in session.scalars(select(ClinicalHistory).where(ClinicalHistory.case_id == case_id))}
                 for item in items:
@@ -141,7 +141,7 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
             output["clinical_rows_inserted"] = inserted
             output["patient_validation_status"] = failure or "SUCCESS"
             if not dry_run:
-                output.update({"case_id": case_id, "case_exists": case_exists,
+                output.update({"case_id": case_id, "matched_fallnr": matched_fallnr, "case_exists": case_exists,
                                "insertion_status": insertion_status or failure or "SUCCESS",
                                "duplicates_skipped": duplicates_skipped})
             run.raw_output = output
@@ -152,7 +152,7 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
                            runtime=client.runtime, model_name=client.model_name,
                            model_version=client.model_version)
     return {"status": insertion_status or failure or "SUCCESS", "patient_id": patient_id,
-            "case_id": case_id, "case_exists": case_exists,
+            "matched_fallnr": matched_fallnr, "case_id": case_id, "case_exists": case_exists,
             "validated_diagnoses": len(items), "new_rows_inserted": inserted,
             "duplicates_skipped": duplicates_skipped, "runtime": client.runtime,
             "model": client.model_name, "model_version": client.model_version,
@@ -174,7 +174,12 @@ def main(argv=None):
     except Exception as exc:
         print(json.dumps({"status": "FAILED", "error_type": type(exc).__name__}))
         return 1
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    report = result
+    if args.commit:
+        report = {key: result.get(key) for key in (
+            "patient_id", "matched_fallnr", "case_id", "case_exists",
+            "validated_diagnoses", "new_rows_inserted", "duplicates_skipped", "status")}
+    print(json.dumps(report, indent=2, ensure_ascii=False))
     return int(result["status"] != "SUCCESS")
 
 
