@@ -1,5 +1,7 @@
 """Derived patient document preparation, independent of clinical extraction."""
-from .models import PatientDocumentBundle, PreparedDocument, PreparedSection, PreparedTable
+from .models import (PatientDocumentBundle, PreparedDocument, PreparedSection, PreparedTable,
+                     DiagnosticProcedure, DiagnosticSubprocedure)
+from .diagnostic_splitter import split_diagnostic_procedures
 
 
 def build_patient_bundle(patient_id, session_factory=None):
@@ -8,4 +10,5 @@ def build_patient_bundle(patient_id, session_factory=None):
 
 
 __all__ = ["PatientDocumentBundle", "PreparedDocument", "PreparedSection",
-           "PreparedTable", "build_patient_bundle"]
+           "PreparedTable", "DiagnosticProcedure", "DiagnosticSubprocedure",
+           "split_diagnostic_procedures", "build_patient_bundle"]

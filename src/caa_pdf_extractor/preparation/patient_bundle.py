@@ -6,6 +6,7 @@ from pathlib import Path
 from .document_classifier import classify_document, detect_document_date
 from .models import PatientDocumentBundle, PreparedDocument
 from .sectionizer import sectionize
+from .diagnostic_splitter import split_diagnostic_procedures
 
 
 def prepare_document(patient_id: str, source_document_id: int, filename: str,
@@ -20,6 +21,7 @@ def prepare_document(patient_id: str, source_document_id: int, filename: str,
         relative_path=metadata["relative_path"], sha256=sha256,
         document_type=classify_document(pages), document_date=detect_document_date(pages),
         sections=sections, excluded_noise=noise,
+        diagnostic_procedures=split_diagnostic_procedures(sections),
     )
 
 
@@ -62,6 +64,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("patient_id")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--procedures-only", action="store_true",
+                        help="Print only procedure metadata, without report findings")
     args = parser.parse_args(argv)
     bundle = build_patient_bundle(args.patient_id)
     # Avoid allowing a patient ID to introduce directories into the default path.
@@ -70,7 +74,14 @@ def main(argv=None) -> int:
         parser.error("Specify --output for a patient ID containing path separators")
     output = args.output or Path(__file__).resolve().parents[3] / "data" / "prepared" / f"{args.patient_id}.json"
     save_json(bundle.to_dict(), output)
-    print(json.dumps(bundle_summary(bundle), indent=2))
+    if args.procedures_only:
+        print(json.dumps([
+            {key: getattr(procedure, key) for key in
+             ("procedure_id", "modality", "date", "studies", "page_start", "page_end")}
+            for document in bundle.documents for procedure in document.diagnostic_procedures
+        ], indent=2, ensure_ascii=False))
+    else:
+        print(json.dumps(bundle_summary(bundle), indent=2))
     return 0
 
 

@@ -151,3 +151,105 @@ values with four-digit years; conflicting dates yield null. Candidate targets
 use headings or short opening lines, are routing hints only, and may be empty
 or contain multiple tables. These conservative rules deliberately leave
 uncertain metadata unset for later extraction.
+
+### Diagnostic procedure preparation
+
+Bundle version 1.1 adds `diagnostic_procedures` under each document while
+retaining the original coarse sections. `diagnostic_splitter.py` recognizes
+line-leading RTG, CT/CTA and MRI aliases, including multiline composite
+headers connected by trailing commas. CTA remains a CT study subtype.
+Examination dates come only from valid parenthesized day.month.year dates
+inside these headers; absent, invalid or conflicting dates remain null.
+
+Each procedure retains its patient/document ID, stable procedure ID, page
+range, studies, original report text and complete original source slice.
+Matching study labels optionally split subprocedure results, including empty
+results and literal “siehe oben” references. Page fallback sections can
+continue a report across pages; a following procedure or named unrelated
+section ends it. Original header/footer text remains in procedure source
+slices for provenance. This stage performs no clinical interpretation and
+routes events only with `candidate_target: "radiology"`.
+
+```powershell
+.venv\Scripts\python.exe -m unittest test_diagnostic_splitter test_preparation test_pipeline
+.venv\Scripts\python.exe -m caa_pdf_extractor.preparation.patient_bundle 2473679415 --procedures-only
+```
+
+`--procedures-only` still saves the full derived bundle but prints only IDs,
+modalities, dates, study names and page ranges, without clinical findings.
+
+## Local Granite clinical history extraction
+
+The first extraction stage selects diagnosis/anamnesis/assessment/clinical
+summary sections from a freshly built patient bundle. It sends one bounded
+request per relevant document to the installed local `granite4.2:latest`
+model through Ollama. `GRANITE_MODEL` can select another installed local
+Granite model; `GRANITE_BASE_URL` defaults to `http://127.0.0.1:11434` and
+accepts numeric loopback addresses only. Proxies, redirects, model downloads,
+cloud models and external inference endpoints are disabled. The adapter is
+`llm/granite.py`; versioned instructions are in `llm/prompts.py`.
+The transport follows the official [Ollama chat API](https://docs.ollama.com/api/chat).
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+.venv\Scripts\python.exe -m unittest test_clinical_extraction test_diagnostic_splitter test_preparation test_pipeline
+.venv\Scripts\python.exe -m caa_pdf_extractor.extraction.clinical_history --patient 2473679415 --dry-run
+```
+
+Dry-run is also the default when neither mode flag is specified. It calls
+Granite and writes audit records to `extraction_runs`, but does not create
+cases or clinical history rows. Terminal output includes only structured
+diagnosis fields and a technical summary, excluding supporting snippets and
+raw model responses. `clinical_history_v1` is the initial prompt version.
+
+Every dry-run also saves a UTF-8, indented debug export at
+`data/debug/<patient_id>/clinical_history_<prompt_version>.json`. Repeating
+a dry-run with the same prompt version replaces that debug file. The export
+contains patient validation status, selected section IDs, decoded
+`granite_response`, normalized output and clinical insert count. Individual
+`runs` retain the full outer audit metadata, timestamps and validation errors.
+For multiple documents, the top-level `granite_response` is an ordered list
+of responses; for a single document it is the decoded response itself.
+Invalid JSON responses remain strings so failed runs can still be inspected.
+Supporting source snippets are included in the local file, not terminal logs.
+Database audit responses remain unchanged as their original strings.
+
+Responses must be JSON without commentary or duplicate keys, then pass strict
+Pydantic validation, patient/document/section/page checks, supporting quotation
+checks and explicit-date checks. Categories must be null. Dates with only a
+month/year or year remain null. Conservative deduplication uses patient context,
+whitespace/case-normalized disease text and disease date; formal diagnosis
+sections take precedence. Differently worded diagnoses remain distinct.
+These checks establish structural and source consistency; they do not replace
+clinical review of the model's diagnosis/date interpretation.
+
+Each relevant document gets an `extraction_runs` audit row with model digest,
+prompt version, timestamps, exact raw response, dry-run context, selected
+section IDs, validated normalized output and validation errors. Statuses are
+`SUCCESS`, `FAILED_PARSE`, `FAILED_VALIDATION` or `FAILED_MODEL` (`RUNNING`
+while inference is in progress). Failed validation of any document prevents
+all clinical inserts for that patient attempt. Failure details exclude source
+text from terminal logs; raw responses remain in the local audit database.
+
+The explicit write path is `--commit` (`--write` is an alias). Patient IDs
+remain strings throughout parsing, preparation and extraction. At the database
+insertion boundary, `case_id = int(patient_id)` directly identifies `public.case.id`;
+`fallnr` is never used for mapping. The existing case is checked by primary key
+and locked against deletion. A missing case returns `CASE_NOT_FOUND` and inserts
+nothing. The pipeline never creates or updates a case. Validated clinical rows are inserted in one transaction with
+case-level locking and deduplication against existing rows. Missing disease,
+admission and discharge dates are explicitly SQL NULL, preventing legacy
+CURRENT_DATE defaults from inventing dates. Other clinical tables are untouched.
+
+
+Commit command (requires an existing case whose primary key is the patient ID):
+
+```powershell
+.venv\Scripts\python.exe -m caa_pdf_extractor.extraction.clinical_history --patient 2473679415 --commit
+```
+
+Commit output reports patient ID, numeric case ID, case existence, validated
+count, new rows and duplicates skipped. Repeat imports compare normalized
+text and disease date for that case under a transaction-level advisory lock.
+The current baseline uses INTEGER case IDs and foreign keys; patient IDs above
+2147483647 require a future BIGINT schema migration before such cases can exist.
