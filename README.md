@@ -44,14 +44,43 @@ CREATE ROLE caa_user WITH LOGIN PASSWORD 'choose-a-strong-password';
 CREATE DATABASE caa_database OWNER caa_user;
 ```
 
-Python environment:
+Python environment (reuse a valid `.venv` if it already exists):
 
 ```powershell
+cd C:\app\pdf_extractor
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-$env:PYTHONPATH = "$PWD\src"
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
+python -c "import caa_pdf_extractor; print(caa_pdf_extractor.__file__)"
+python -m pip install -e ".[test]"
+python -m pytest
 ```
+
+Editable installation makes `PYTHONPATH` unnecessary. Put local patient PDFs in
+`pdf_db/<patient_id>/`; `PDF_DB_PATH` can select another local root.
+
+The project `.env` is optional. Copy `.env.example` only when creating a new local
+configuration; preserve an existing `.env`. Use real local PostgreSQL credentials
+in `DATABASE_URL`. OS environment variables take precedence over `.env` for both
+application code and Alembic. Model imports do not initialize an engine or require
+`DATABASE_URL`; database operations give a clear error if it is absent.
+
+For laptop development set `LLM_BACKEND=mock`. This backend performs no inference
+and returns empty extraction lists; use injected fake clients for deterministic
+extraction tests. For the home PC set `LLM_BACKEND=granite` and optionally
+`GRANITE_MODEL=granite4.2:latest`. An unset backend defaults to Granite to preserve
+the existing home-PC behavior. Granite uses the local Ollama runtime described
+below. No model/runtime imports are needed for general package imports.
+
+The deterministic suite needs neither PostgreSQL nor Granite:
+
+```powershell
+python -m unittest test_pipeline test_preparation test_diagnostic_splitter test_clinical_extraction test_case_bootstrap test_medications test_portability
+```
+
+Full pytest also includes legacy PDF smoke scripts and a read-only integration
+check requiring local `pdf_db` and PostgreSQL.
 
 Apply the database schema using Alembic:
 
@@ -87,7 +116,6 @@ an `extraction_runs` provenance record. The connection comes from `DATABASE_URL`
 in the project `.env` (the environment variable takes precedence).
 
 ```powershell
-$env:PYTHONPATH = "$PWD\src"
 .venv\Scripts\python.exe -m unittest test_pipeline
 .venv\Scripts\python.exe -m caa_pdf_extractor.pdf_ingestion --limit 2 --dry-run
 .venv\Scripts\python.exe -m caa_pdf_extractor.pdf_ingestion
@@ -115,7 +143,6 @@ separate. Preparation performs database reads only; parsed source JSON and
 clinical tables are not modified. No LLM or clinical row extraction is involved.
 
 ```powershell
-$env:PYTHONPATH = "$PWD\src"
 .venv\Scripts\python.exe -m unittest test_preparation test_pipeline
 .venv\Scripts\python.exe -m caa_pdf_extractor.preparation.patient_bundle 2473679415
 ```
@@ -191,7 +218,6 @@ cloud models and external inference endpoints are disabled. The adapter is
 The transport follows the official [Ollama chat API](https://docs.ollama.com/api/chat).
 
 ```powershell
-$env:PYTHONPATH = "$PWD\src"
 .venv\Scripts\python.exe -m unittest test_clinical_extraction test_diagnostic_splitter test_preparation test_pipeline
 .venv\Scripts\python.exe -m caa_pdf_extractor.extraction.clinical_history --patient 2473679415 --dry-run
 ```
@@ -262,7 +288,6 @@ from `source_documents` (the JSON `document.patient_id` in the current schema)
 as authoritative `case.fallnr` values. It never rescans folders or calls a model.
 
 ```powershell
-$env:PYTHONPATH = "$PWD\src"
 .venv\Scripts\python.exe -m caa_pdf_extractor.case_bootstrap --dry-run
 .venv\Scripts\python.exe -m caa_pdf_extractor.case_bootstrap --commit
 ```
@@ -285,3 +310,45 @@ case IDs and their generation remain unchanged.
 The live schema inspected for this project has `case_fallnr_key UNIQUE(fallnr)`;
 no schema migration was necessary. A detailed inspection report is saved in
 `data/debug/case_schema.md` and `data/debug/case_schema.json`.
+
+## Local medication extraction
+
+Medication extraction uses bounded medication sections and their immediately
+adjacent table continuations. Structured rows take precedence over duplicated
+page text. The single `medications.medication` field preserves name, strength,
+route, schedule and conditional instructions. Table dose cells remain in their
+source order (morning, midday, evening, night for the current source format).
+Non-drug compression measures are excluded. No full document is sent to Granite.
+
+```powershell
+$env:LLM_BACKEND = "granite"
+python -m caa_pdf_extractor.extraction.medications --patient 2473679415 --dry-run
+python -m caa_pdf_extractor.extraction.medications --patient 2473679415 --commit
+```
+
+Dry-run is the default and writes audit/debug records only. The terminal reports
+IDs, input counts, validation status and insert/duplicate counts, without
+medication or source text. A readable local debug export, including raw model
+response and provenance, is saved to
+`data/debug/<patient_id>/medications_medications_v1.json`. Repeating either mode
+replaces that export; each attempt retains its database audit records.
+
+JSON and strict Pydantic validation enforce patient/document/section/table/page
+provenance and exact source quotations. Table medication values must preserve
+every nonempty dose cell. Categories use the existing native enum, and stay null
+unless a literal allowed category is present in the supporting row/line. Drug
+classes are not inferred. Start/stop dates require a complete date explicitly
+labelled for that medication; document/admission/discharge dates are never used.
+Unknown dates and categories are inserted explicitly as SQL NULL, overriding the
+legacy CURRENT_DATE date defaults.
+
+A failed document blocks every medication insertion for the patient attempt.
+Raw responses and validation errors remain in `extraction_runs`. Commit resolves
+`patient_id -> case.fallnr -> case.id`, creates no case, and inserts atomically
+under the existing case lock. Repeat commits skip existing exact medication
+regimens after whitespace normalization, comparing both dates and category.
+Different strengths or regimens remain separate. No schema migration is needed.
+
+Deterministic medication tests use injected clients and synthetic sources; model
+validation enforces source consistency and still needs clinical review of the
+interpretation.

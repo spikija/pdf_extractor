@@ -7,7 +7,7 @@ import re
 from pydantic import ValidationError
 from sqlalchemy import select, text, null
 
-from ..llm.granite import GraniteClient
+from ..llm.backend import get_client
 from ..llm.prompts import PROMPT_VERSION, clinical_history_prompt
 from ..preparation import build_patient_bundle
 from .models import ClinicalHistoryExtraction
@@ -40,7 +40,7 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
     factory = session_factory or SessionLocal
     bundle = build_patient_bundle(patient_id, factory)
     sections = select_sections(bundle)
-    client = client or GraniteClient()
+    client = client or get_client()
     if not sections:
         if dry_run:
             save_dry_run_debug(patient_id, PROMPT_VERSION, [], status="NO_INPUT",

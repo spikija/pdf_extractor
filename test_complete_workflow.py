@@ -1,6 +1,6 @@
 from caa_pdf_extractor.database import SessionLocal
 from sqlalchemy import text
-from caa_pdf_extractor.case_bootstrap import bootstrap_cases
+from caa_pdf_extractor.case_bootstrap import bootstrap_cases, imported_patient_ids
 import json
 
 
@@ -28,17 +28,13 @@ def test_complete_workflow():
         )
         print(f"Total source documents: {result.scalar()}")
 
-        result = session.execute(
-            text("""
-                SELECT COUNT(DISTINCT patient_id)
-                FROM public.source_documents
-                WHERE patient_id IS NOT NULL
-            """)
-        )
+        patient_ids = imported_patient_ids(session)
         print(
             f"Unique patients in source documents: "
-            f"{result.scalar()}"
+            f"{len(patient_ids)}"
         )
+        assert len(patient_ids) == summary["patients_found"]
+        assert not summary["errors"]
 
     # Test 3: Verify case bootstrap correctness
     print("\n3. Verifying case bootstrap correctness:")

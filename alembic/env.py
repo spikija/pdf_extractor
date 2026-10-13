@@ -1,28 +1,11 @@
 from logging.config import fileConfig
-from pathlib import Path
-import os
-
 from alembic import context
-from sqlalchemy import engine_from_config, pool
-from dotenv import load_dotenv
-
+from caa_pdf_extractor.config import database_url
+from caa_pdf_extractor.database.connection import get_engine
 from caa_pdf_extractor.database.models import Base
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ENV_FILE = PROJECT_ROOT / ".env"
-
-if not ENV_FILE.exists():
-    raise RuntimeError(f".env file not found at: {ENV_FILE}")
-
-load_dotenv(dotenv_path=ENV_FILE, override=True)
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if not DATABASE_URL:
-    raise RuntimeError(
-        f"DATABASE_URL was not found in {ENV_FILE}"
-    )
+DATABASE_URL = database_url()
 
 config = context.config
 
@@ -53,11 +36,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = get_engine()
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from .utils import parse_pdf, save_json
+from .config import pdf_db_path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -83,7 +84,7 @@ def ingest_pdf(pdf_path: Path, pdf_root: Path, *, parsed_root: Path | None = Non
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pdf-root", type=Path, default=PROJECT_ROOT / "pdf_db")
+    parser.add_argument("--pdf-root", type=Path, default=pdf_db_path())
     parser.add_argument("--parsed-root", type=Path, default=PROJECT_ROOT / "data" / "parsed")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--dry-run", action="store_true", help="Parse and save JSON without database writes")
