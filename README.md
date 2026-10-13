@@ -76,7 +76,7 @@ below. No model/runtime imports are needed for general package imports.
 The deterministic suite needs neither PostgreSQL nor Granite:
 
 ```powershell
-python -m unittest test_pipeline test_preparation test_diagnostic_splitter test_clinical_extraction test_case_bootstrap test_medications test_portability
+python -m unittest test_pipeline test_preparation test_diagnostic_splitter test_clinical_extraction test_case_bootstrap test_medications test_portability test_radiology
 ```
 
 Full pytest also includes legacy PDF smoke scripts and a read-only integration
@@ -352,3 +352,81 @@ Different strengths or regimens remain separate. No schema migration is needed.
 Deterministic medication tests use injected clients and synthetic sources; model
 validation enforces source consistency and still needs clinical review of the
 interpretation.
+
+## MRI imaging phenotype extraction
+
+The existing `radiology` table represents MRI imaging phenotypes. CT and RTG
+procedures remain in preparation and get `SKIPPED_NON_MRI` audit records; they
+never write dates or findings to this table. Each MRI diagnostic procedure is
+one local model task. The parser and diagnostic splitter remain unchanged.
+An extraction boundary excludes unrelated consultation material accidentally
+carried after an MRI report. A source saying no MRI report was created yields
+no phenotype rows.
+
+```powershell
+$env:LLM_BACKEND = "granite"
+python -m caa_pdf_extractor.extraction.radiology --patient 2473679415 --dry-run
+python -m caa_pdf_extractor.extraction.radiology --patient 2473679415 --commit
+```
+
+Dry-run is the default. Both modes retain per-procedure audits and
+write readable UTF-8 debug JSON to
+`data/debug/<patient_id>/radiology_radiology_v1.json`. Terminal output is limited
+to IDs, modality counts, validation and insertion counts. The mock backend
+returns no phenotypes and requires no Ollama.
+
+Successful dry-runs also save immutable artifacts in
+`data/debug/<patient_id>/verified/radiology_<timestamp>_<id>.json`, marked
+`validation_status=VERIFIED`. Each artifact includes case/event provenance,
+exact normalized evidence, CAA metadata, model identity, creation time and
+SHA256 fingerprints of the source/procedure and actual prompt (including schema
+and acuity rule version). Later failed attempts do not overwrite these artifacts.
+
+`--commit` uses the latest verified artifact and **never calls Granite**. It checks
+fingerprints, prompt/rule version, configured model name, case resolution and
+the original successful inference audit records. The saved raw response is
+revalidated against current source text, retaining exact evidence; the original
+normalized output is persisted. Commit audits record
+`operation=COMMIT_VERIFIED_EXTRACTION`, `inference_performed=false`, artifact hash
+and source run IDs. Model digest provenance is checked against those original
+audits without contacting Ollama. Missing, stale or invalid artifacts return
+`NO_VERIFIED_EXTRACTION`, `VERIFIED_EXTRACTION_STALE` or
+`VERIFIED_EXTRACTION_INVALID`; run and review a successful `--dry-run` first.
+Verified empty MRI extractions are valid and insert no rows. Clinical rows and
+successful commit audit records share one transaction.
+
+Previously reviewed successful debug snapshots can be promoted without
+inference using `radiology_artifacts.verify_debug_artifact(patient_id, path)`.
+Promotion verifies the snapshot against its original database audits and current
+source before creating fingerprints. It does not modify the source or old audits.
+
+`radiology_v1` extracts supported enum phenotypes with concise verbatim evidence.
+One MRI can create several rows (for example lobar hemorrhage and cmb). Date,
+modality, studies, source document and pages always come from preparation;
+conflicting unsolicited model metadata is recorded and reconciled. Only MRI
+dates enter `mri_date`; missing dates are explicitly SQL NULL. Acuity is derived
+deterministically per phenotype: a currently described macroscopic intracerebral
+hematoma/hemorrhage is true unless its source statement establishes old/chronic,
+residual, remote/previous hemorrhage or similar non-acute status. CMB and CSS are
+false under this database's imaging-marker convention, without requiring the
+literal word chronic. Other supported phenotypes remain NULL when their wording
+does not establish a defensible classification. Comparison imaging does not
+establish lesion chronicity. The original model bool and any reconciliation remain
+auditable under `phenotype_specific_v1`; verbatim quotations and provenance are
+still mandatory, and CAA suspicion remains audit-only.
+
+Each row uses the resolved internal `case.id`, `pid=patient_id=case.fallnr`,
+`deleted=false` and `saved_on_hdd=false`. CAA suspicion, microbleed descriptions,
+edema, absent midline shift and other descriptive observations are audit-only;
+they do not generate placeholder `other` rows or new database columns.
+
+All intended MRI records must pass JSON, Pydantic and quotation/support checks
+before any clinical insertion. Any failed MRI blocks the whole patient commit.
+Clinical inserts use one transaction and the existing case advisory lock.
+Duplicate keys are case ID, deterministic MRI date, type and acuity among rows
+with `deleted=false`; no new audit FK is required. A repeated phenotype on a
+different MRI date remains distinct. Raw responses, errors, deterministic event
+context, normalized findings and per-event insert/duplicate counts remain in
+`extraction_runs`. Debug output is overwritten by subsequent attempts, while
+database audit history is retained. Review real dry-run findings against their
+source evidence before committing; source checks do not replace clinical review.

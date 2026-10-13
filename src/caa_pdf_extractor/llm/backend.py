@@ -13,6 +13,11 @@ class MockClient:
     def generate_json(self, prompt):
         prefix, source = prompt.split("\nSource data:\n", 1)
         data = json.loads(source)
+        if 'procedure' in data:
+            return json.dumps({'patient_id': data['patient_id'],
+                               'procedure_id': data['procedure']['procedure_id'], 'findings': [],
+                               'additional_findings': {'caa_suspicion_explicit': None, 'caa_evidence': None,
+                                   'microbleed_description': None, 'other_findings': []}})
         target = "medications" if "medications" in prefix else "clinical_history"
         return json.dumps({"patient_id": data["patient_id"], target: []})
 
