@@ -13,6 +13,13 @@ class MockClient:
     def generate_json(self, prompt):
         prefix, source = prompt.split("\nSource data:\n", 1)
         data = json.loads(source)
+        if 'laboratory_candidates' in data:
+            return json.dumps({'patient_id': data['patient_id'], 'measurements': []})
+        if 'family_history_passages' in data:
+            return json.dumps({'patient_id': data['patient_id'], 'family_history': []})
+        if 'examination' in data:
+            return json.dumps({'patient_id': data['patient_id'],
+                               'examination_id': data['examination']['examination_id'], 'records': []})
         if 'procedure' in data:
             return json.dumps({'patient_id': data['patient_id'],
                                'procedure_id': data['procedure']['procedure_id'], 'findings': [],

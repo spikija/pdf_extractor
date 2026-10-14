@@ -76,11 +76,114 @@ below. No model/runtime imports are needed for general package imports.
 The deterministic suite needs neither PostgreSQL nor Granite:
 
 ```powershell
-python -m unittest test_pipeline test_preparation test_diagnostic_splitter test_clinical_extraction test_case_bootstrap test_medications test_portability test_radiology
+python -m unittest test_pipeline test_preparation test_diagnostic_splitter test_clinical_extraction test_case_bootstrap test_medications test_portability test_radiology test_examinations test_family_history test_laboratory_schema test_laboratory test_laboratory_layout test_laboratory_layout_workflow
 ```
 
 Full pytest also includes legacy PDF smoke scripts and a read-only integration
 check requiring local `pdf_db` and PostgreSQL.
+
+### Laboratory numeric schema and narrow extraction
+
+Apply `python -m alembic upgrade head` before laboratory extraction. Revision
+`0002_laboratory_numeric` changes only the six laboratory measurements to
+unconstrained PostgreSQL NUMERIC and removes their zero defaults and the
+`date_of_exam` default. Existing integers, legitimate zeros, NULLs and dates are
+preserved. The original baseline remains intact. Downgrade refuses fractional,
+nonfinite or out-of-range values before converting back to INTEGER.
+
+`laboratory_v1` searches only CSF Aβ42, Aβ42/40 ratio, total tau, phospho-tau,
+CRP and HbA1c. Its primary parser uses original PDF words and bounding boxes
+through PyMuPDF. It verifies the PDF SHA256 against the ingested source, groups
+visual rows, identifies analyte/unit cells, and associates all numeric cells
+with their geometric columns. Raw numeric strings are parsed directly into
+Python Decimal; audit JSON retains decimal strings without binary floats.
+Granite is not used to reconstruct tables.
+
+```powershell
+python -m caa_pdf_extractor.extraction.laboratory --patient PATIENT_ID --dry-run
+```
+
+Each candidate retains exact source tokens, label/value/unit/header bounding
+boxes, reconstructed row text and x-coordinate associations. Validation replays
+the deterministic extraction against page tokens. Competing labels, values or
+date columns block acceptance. Date headers must occupy the value column or a
+directly adjacent table-header row; overall ranges and unrelated dates never
+supply individual measurement dates. Missing individual dates remain NULL.
+First/last/minimum/maximum remain separate candidates even when values repeat;
+minimum/maximum summaries remain audit-only.
+
+CRP uses explicit mg/dL and HbA1c explicit percent. Other CRP units and IFCC-only
+HbA1c block persistence with UNIT_MISMATCH. When the percent representation is
+present, paired IFCC values remain audit-only and create no additional row.
+No unit conversions or scaling are performed. CSF source units must be clearly
+interpretable and retained in audit; the Aβ42/40 ratio is dimensionless.
+
+Dry-runs create the ignored layout-debug artifact
+`data/debug/PATIENT_ID/laboratory_layout_candidates.json`, a successful layout
+validation audit, and an immutable VERIFIED artifact under the patient verified
+directory. The artifact retains all candidates, with layout provenance
+and observation fingerprints for eligible observations. Only CRP in mg/dL and
+HbA1c in percent are eligible in the approved persistence convention; IFCC,
+minimum/maximum and CSF candidates remain audit-only in this implementation.
+Missing individual dates are allowed when source/row/column/value/unit are
+unambiguous. The earlier text parser is not the CLI workflow.
+
+```powershell
+python -m caa_pdf_extractor.extraction.laboratory --patient PATIENT_ID --commit
+```
+
+Commit loads the VERIFIED layout artifact, replays original PDF geometry and
+fingerprints, and checks its original successful validation audit without any
+Granite call. One observation produces one database row; dates and unrelated
+measurement fields are explicitly SQL NULL. Duplicate matching uses case,
+date and the populated biomarker/value among active rows. Commit audits record
+observation-fingerprint-to-row-ID links. Only a matching linked observation is
+safely reused; an unlinked equal-valued row or genuinely distinct equal-valued
+NULL-date observations are reported as DUPLICATE_IDENTITY_AMBIGUOUS and blocked.
+Other unambiguous observations may commit in the same transaction; blocked
+counts are reported explicitly. Existing clinical values are never overwritten.
+
+`test_laboratory_postgres.py` verifies decimal/NULL round-trips and migration
+safety using temporary PostgreSQL tables, with no clinical-table inserts.
+
+### Family history
+
+`family_history_v1` selects bounded family-history/kinship passages from prepared
+sections and sends those passages to local Granite. It extracts positive family
+disease only. Patient diseases, social history, genetic results and negative
+family history produce no clinical row. Negative statements remain in audit.
+Relative/disease wording is retained from the source; supporting evidence must
+be an exact substring after whitespace normalization, with matching document,
+section and page metadata and positive family attribution.
+
+The application maps parents, siblings and children to `first grade`, and
+grandparents, aunts/uncles, nieces/nephews and grandchildren to `second grade`.
+Unspecified familial disease uses NULL relative and `not specified`; other
+explicit relatives (including half-siblings without an established convention)
+use `unknown`. `Option` is never generated. Conflicting model categories or
+uncertain attribution reject validation.
+
+```powershell
+python -m caa_pdf_extractor.extraction.family_history --patient PATIENT_ID --dry-run
+python -m caa_pdf_extractor.extraction.family_history --patient PATIENT_ID --commit
+```
+
+Dry-run writes extraction audits and an immutable VERIFIED artifact under the
+ignored `data/debug/PATIENT_ID/verified/` directory; it inserts no family-history
+rows. Empty extraction is valid. The complete prepared source is fingerprinted
+locally, including unselected passages, so empty artifacts also become stale
+when source content changes. Commit revalidates the original successful audit,
+source fingerprint, prompt and model, without creating or calling a Granite
+client. Missing, stale or altered artifacts block commit.
+
+Patient ID resolves through `case.fallnr` to `family_history.case_id`. Duplicate
+identity is case ID plus whitespace-normalized, case-insensitive relative and
+disease plus relative category among `deleted=false` rows. NULL matches NULL;
+evidence is audit payload. Existing rows are skipped without alteration, and
+insertion and commit audit share a transaction protected by a case lock.
+`case.family_history` is unchanged. Synchronization can be considered separately
+as a derived indicator of active family-history rows; absence of extracted rows
+does not establish a clinically negative family history.
 
 Apply the database schema using Alembic:
 
@@ -430,3 +533,80 @@ context, normalized findings and per-event insert/duplicate counts remain in
 `extraction_runs`. Debug output is overwritten by subsequent attempts, while
 database audit history is retained. Review real dry-run findings against their
 source evidence before committing; source checks do not replace clinical review.
+
+## Ancillary diagnostic examination extraction
+
+`examinations` stores instrument-based diagnostic procedures and their results:
+ultrasound, amyloid/FDG PET-CT, SPECT, body MRI and other. It does not represent
+neurological bedside status, NIHSS, cognition or blood pressure. Existing UI labels
+are Type, Location, Result, Neck vessel result and Date. No schema migration is
+needed. The ORM neck-vessel enum spellings now match the existing live/baseline
+`perc` labels rather than percent-sign spellings.
+
+```powershell
+$env:LLM_BACKEND = "granite"
+python -m caa_pdf_extractor.extraction.examinations --patient PATIENT_ID --dry-run
+python -m caa_pdf_extractor.extraction.examinations --patient PATIENT_ID --commit
+```
+
+`examinations_v1` selects explicitly headed, bounded procedure reports within
+prepared sections. It separates bilateral duplex reports and stops before
+unrelated reports, shared assessment, therapy and laboratory content. Explicit
+planned/recommended studies and neurological status sections are excluded.
+Recognized headings include neurosonology, carotid/neck-vessel duplex, transcranial
+sonography/Doppler, echo, explicit amyloid/FDG PET, SPECT and body MRI. Routine
+brain CT/MRI, neurological status, NIHSS/MMSE/MoCA, laboratory and medications
+are excluded. Other ancillary examinations are not routed without a clear
+schema mapping. Anatomy is determined only when stated or supported by the
+named procedure; mixed anatomy fails rather than choosing arbitrarily.
+Echocardiography maps to ultrasound/heart; leg duplex maps to ultrasound with
+location NULL because this schema has no leg-specific enum. Laterality remains in source/audit context and must be preserved where relevant
+in the selected result quotation. Examination dates come only from the procedure
+header, never the document/admission/discharge date. Unknown dates are explicitly
+SQL NULL, overriding CURRENT_DATE. Neck-vessel categories require explicit current arterial stenosis evidence in a
+neck/transcranial ultrasound report. ICA/ACI/carotis interna and MCA/ACM/cerebri
+media aliases map by explicit right/left side and a supported >50% severity.
+Vague high-grade wording, exactly 50%, >=50%, uncertain ranges, suspected or
+negated stenosis never prove >50%. Other clearly stated cerebral vessel stenosis
+has its own category. Normal/no stenosis stays NULL, never unknown. Leg vein
+thrombosis never supplies these categories. Several applicable categories fail
+validation because the target field is scalar. The source-derived reconciliation
+is kept in audit metadata under explicit_stenosis_v1.
+
+The model selects a concise contiguous verbatim result quotation. Exact evidence
+is retained from that source-validated quote, without paraphrasing. Type, known
+anatomy, date and provenance are attached from the focused input; conflicting
+model metadata is rejected. Strict JSON/Pydantic validation checks enums, provenance,
+metadata and all result text. A failed input prevents verification of the patient
+attempt. The mock backend returns empty record lists without Granite.
+
+Debug exports are `data/debug/<patient_id>/examinations_examinations_v1.json`.
+Successful dry-runs create immutable VERIFIED artifacts under the patient's
+`verified` directory, with examination/source/section metadata, model identity,
+exact normalized output and SHA256 fingerprints of input, prompt/schema and
+extraction type. Commit checks fingerprints and original audit records and
+revalidates retained raw output without a backend or LLM call. Missing/stale/
+altered artifacts fail safely. Original inference audits remain unchanged.
+
+Clinical rows and commit audit records share one transaction under the existing
+case advisory lock. case_id is the resolved internal case.id; deleted is false.
+Primary duplicate identity is case ID, examination date, type, location and
+neck-vessel category among rows with deleted=false. Result text is payload and
+is never part of that key. NULL values match NULL values. Matching rows are
+reused/skipped; their existing result is not overwritten, even when the verified
+artifact uses a concise quotation instead of the legacy full report.
+
+Several genuinely distinct examinations may share these fields, especially when
+dates or anatomy are unknown. Reconciliation checks the entire patient batch
+before writes. Such collisions require unambiguous source/procedure audit links
+or explicit examination labels. For legacy reports, only their original label
+prefix is used as metadata; body wording is never compared. Matched/inserted row
+IDs and reuse reasons are recorded in commit audits, so subsequent payload wording
+does not control identity. Unresolved collisions return
+AMBIGUOUS_EXAMINATION_IDENTITY with technical details and perform no clinical
+writes. The table alone cannot distinguish repeated same-day studies with equal
+identity fields; it must not silently merge them. This commit-only identity
+change does not alter source/prompt fingerprints or invalidate verified artifacts.
+Terminal output contains technical counts and IDs; source/result text stays local
+in debug and audit records. Full deterministic tests require neither PostgreSQL
+nor Ollama.

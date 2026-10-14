@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Integer,
-    JSON, Text, UniqueConstraint, text
+    JSON, Numeric, Text, UniqueConstraint, text
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -74,7 +75,7 @@ class Examination(Base):
     type: Mapped[str | None] = mapped_column(Enum('ultrasound', 'pet ct amyloid', 'pet ct fdg', 'spect', 'mri body', 'other', name='type_enum_3269a85d', native_enum=True), nullable=True)
     location: Mapped[str | None] = mapped_column(Enum('neck vessels', 'brain', 'heart', 'body', 'abdomen', 'other', name='location_enum_32c78b5f', native_enum=True), nullable=True)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
-    neck_vessel_result: Mapped[str | None] = mapped_column(Enum('ica > 50% right stenosis', 'ica > 50% left stenosis', 'acm right > 50 % stenosis', 'acm left >50% stenosis', 'other cerebral vessel stenosis', 'unknown', name='neck_vessel_result_enum_a1381347', native_enum=True), nullable=True)
+    neck_vessel_result: Mapped[str | None] = mapped_column(Enum('ica > 50perc right stenosis', 'ica > 50perc left stenosis', 'acm right > 50 perc stenosis', 'acm left >50perc stenosis', 'other cerebral vessel stenosis', 'unknown', name='neck_vessel_result_enum_a1381347', native_enum=True), nullable=True)
     deleted: Mapped[bool | None] = mapped_column(Boolean, nullable=True, server_default=text('FALSE'))
     date_examination: Mapped[date | None] = mapped_column(Date, nullable=True, server_default=text('CURRENT_DATE'))
 
@@ -91,13 +92,13 @@ class Laboratory(Base):
     __tablename__ = 'laboratory'
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, nullable=False)
     case_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('case.id'), nullable=True)
-    date_of_exam: Mapped[date | None] = mapped_column(Date, nullable=True, server_default=text('CURRENT_DATE'))
-    csf_beta42: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text('0'))
-    csf_beta4240_ratio: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text('0'))
-    csf_tau_total: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text('0'))
-    csf_ptau_total: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text('0'))
-    crp: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text('0'))
-    hba1c: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default=text('0'))
+    date_of_exam: Mapped[date | None] = mapped_column(Date, nullable=True)
+    csf_beta42: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    csf_beta4240_ratio: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    csf_tau_total: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    csf_ptau_total: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    crp: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    hba1c: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     deleted: Mapped[bool | None] = mapped_column(Boolean, nullable=True, server_default=text('FALSE'))
 
 class Medication(Base):
