@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import date
 from .examination_models import ExaminationExtraction
 from .validators import parse_json
@@ -7,6 +8,24 @@ from .stenosis import supported_categories
 
 def whitespace(value):
     return ' '.join(value.split())
+
+
+def source_result(item):
+    """One contiguous exact slice; preserve every internal label and spelling."""
+    text = item.text
+    start = text.find(item.header)
+    if start < 0: raise ValueError('Examination header absent from source')
+    text = text[start+len(item.header):]
+    legend = re.search(r'(?im)^\s*Gray-Weale-Klassifikation\s*:', text)
+    if legend: text = text[:legend.start()]
+    text = text.strip()
+    if not text: raise ValueError('Header alone is not an examination result')
+    return text
+
+
+def source_response(item):
+    return json.dumps({'patient_id':item.patient_id, 'examination_id':item.examination_id,
+                       'records':[{'result':source_result(item)}]}, ensure_ascii=False)
 
 
 def validate_examinations(raw, item):
@@ -45,7 +64,7 @@ def validate_examinations(raw, item):
             classification_reconciliation.append({'model_value':record.neck_vessel_result,
                                                  'normalized_value':chosen,'rule_version':'explicit_stenosis_v1'})
         record.neck_vessel_result = chosen
-        record.result = value
+        record.result = record.result.strip()
         record.evidence = quotation
         records.append(record.model_dump(mode='json'))
     return {**item.context(), 'records': records, 'neck_vessel_reconciliation':classification_reconciliation}

@@ -17,13 +17,15 @@ from .laboratory_inputs import MATCHERS, select_laboratory_inputs
 from .laboratory_models import NUMBER, parse_decimal
 from .radiology_artifacts import artifact_directory, digest
 
-METHOD_VERSION = 'laboratory_layout_v1'
+METHOD_VERSION = 'laboratory_layout_v2'
 ROW_TOLERANCE = 2.0
 DATE_TOKEN = re.compile(r'^(?:\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{4})$')
 UNITS = {'mg/dl', 'mg/l', '%', 'mmol/mol', 'mmol/m', 'pg/ml', 'ng/l', 'ng/ml', 'ratio', 'dimensionless'}
 ROLES = {'erster': 'first', 'first': 'first', 'letzter': 'last', 'last': 'last',
          'min.': 'minimum', 'min': 'minimum', 'minimum': 'minimum',
-         'max.': 'maximum', 'max': 'maximum', 'maximum': 'maximum'}
+         'max.': 'maximum', 'max': 'maximum', 'maximum': 'maximum',
+         'referenz': 'reference', 'referenzbereich': 'reference', 'normbereich': 'reference',
+         'reference': 'reference'}
 
 
 @dataclass(frozen=True)
@@ -155,8 +157,13 @@ def extract_page(tokens, source_document_id):
         marker = next((name for name, regex in MATCHERS.items() if regex.search(text)), None)
         if marker is None or re.search(r'HbA1c[- ]Wert', text, re.I):
             continue
+        # A planned interval, treatment target or narrative number is not a result cell.
+        if re.search(r'\b(?:Kontrolle|Laborkontrolle|Zielwert|Zielbereich|Hausarzt|Monaten?|Tagen?)\b', text, re.I):
+            continue
         before = [h for h in headers if h['y'] < min(t.y0 for t in row)]
         header = max(before, key=lambda h: h['y']) if before else None
+        if header is None:
+            continue
         # An analyte must occupy the label column, not a note in a value cell.
         left = [t for t in row if t.x1 < header['unit'].x0] if header else row
         label_text = ' '.join(t.text for t in left)
@@ -232,7 +239,7 @@ def extract_page(tokens, source_document_id):
                                   'distance': abs(value.cx - cell['center']) if cell else None},
                 'reconstructed_row_text': text, 'extraction_method': 'layout', 'method_version': METHOD_VERSION,
                 'source_tokens': [t.provenance() for t in sorted(set(refs), key=lambda t: t.token_index)],
-                'audit_only': ifcc or role in ('minimum', 'maximum'),
+                'audit_only': ifcc or role in ('minimum', 'maximum', 'reference') or 'UNIT_MISMATCH' in issues,
                 'issues': sorted(set(issues)), 'validation_status': 'VALID' if not issues else 'AMBIGUOUS_LAYOUT' if any('AMBIGUOUS' in s for s in issues) else 'UNIT_MISMATCH',
                 'date_status': 'RESOLVED' if associated else 'AMBIGUOUS_DATE_COLUMN' if date_ambiguous else 'NO_EXPLICIT_COLUMN_DATE',
                 'clinical_persistence_authorized': False}

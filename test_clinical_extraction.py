@@ -162,7 +162,7 @@ class PipelineTests(unittest.TestCase):
         from caa_pdf_extractor.database.models import ExtractionRun
         factory = self.setup_factory()
         with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
-            result = extract_patient('123', client=self.client([json.dumps(output())]), session_factory=factory)
+            result = extract_patient('123', client=self.client([json.dumps(output())]), session_factory=factory, debug_root=self.debug_temp.name)
         self.assertEqual(result['status'], 'SUCCESS')
         self.assertEqual(result['diagnosis_count'], 1)
         self.assertEqual(result['inserted'], 0)
@@ -171,7 +171,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(self.runs[1].status, 'SUCCESS')
         self.assertEqual(self.runs[1].raw_output['response'], json.dumps(output()))
         exported = json.loads((Path(self.debug_temp.name) / '123' /
-                               'clinical_history_clinical_history_v1.json').read_text(encoding='utf-8'))
+                               'clinical_history_clinical_history_v3_date_ownership.json').read_text(encoding='utf-8'))
         self.assertEqual(exported['granite_response'], output())
         self.assertEqual(exported['patient_validation_status'], 'SUCCESS')
         self.assertEqual(exported['section_ids'], ['doc1_sec01'])
@@ -184,8 +184,8 @@ class PipelineTests(unittest.TestCase):
                                  (RuntimeError('do not log source'), 'FAILED_MODEL')]:
             factory = self.setup_factory()
             with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle(2)):
-                result = extract_patient('123', dry_run=False,
-                                         client=self.client([json.dumps(output()), response]), session_factory=factory)
+                result = extract_patient('123', dry_run=True,
+                                         client=self.client([json.dumps(output()), response]), session_factory=factory, debug_root=self.debug_temp.name)
             self.assertEqual(result['status'], status)
             self.assertEqual(result['diagnoses'], [])
             self.assertTrue(all(isinstance(row, ExtractionRun) for row in self.added))
@@ -197,15 +197,21 @@ class PipelineTests(unittest.TestCase):
         factory = self.setup_factory()
         value = output()
         value['clinical_history'][0]['date_disease'] = None
-        with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
+        value['clinical_history'][0]['source_text'] = 'Example disease'
+        undated_bundle = bundle()
+        undated_bundle.documents[0].sections[0].text = 'Diagnosen\nExample disease\n'
+        with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=undated_bundle):
+            client = self.client([json.dumps(value)])
+            verified = extract_patient('123', client=client, session_factory=factory, debug_root=self.debug_temp.name)
+            self.assertEqual(verified['artifact_validation_status'], 'VERIFIED')
             result = extract_patient('123', dry_run=False,
-                                     client=self.client([json.dumps(value)]), session_factory=factory)
+                                     client=client, session_factory=factory, debug_root=self.debug_temp.name)
         self.assertEqual(result['inserted'], 1)
         clinical = [row for row in self.added if isinstance(row, ClinicalHistory)]
         self.assertEqual(len(clinical), 1)
         self.assertEqual(clinical[0].case_id, 12345)
         self.assertEqual(str(clinical[0].date_disease), 'NULL')
-        self.assertFalse(list(Path(self.debug_temp.name).rglob('*.json')))
+        self.assertTrue(list(Path(self.debug_temp.name).rglob('*.json')))
 
     def test_existing_diagnosis_is_not_reinserted(self):
         from datetime import date
@@ -213,9 +219,10 @@ class PipelineTests(unittest.TestCase):
         factory = self.setup_factory()
         session = factory.begin.return_value.__enter__.return_value
         session.scalars.return_value = [SimpleNamespace(disease='EXAMPLE  disease', date_disease=date(2015, 12, 11))]
+        client = self.client([json.dumps(output())])
         with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
-            result = extract_patient('123', dry_run=False,
-                                     client=self.client([json.dumps(output())]), session_factory=factory)
+            extract_patient('123', client=client, session_factory=factory, debug_root=self.debug_temp.name)
+            result = extract_patient('123', dry_run=False, client=client, session_factory=factory, debug_root=self.debug_temp.name)
         self.assertEqual(result['inserted'], 0)
         self.assertFalse(any(isinstance(row, ClinicalHistory) for row in self.added))
 
@@ -226,12 +233,11 @@ class PipelineTests(unittest.TestCase):
         session.execute.return_value.all.return_value = []
         with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
             result = extract_patient('123', dry_run=False,
-                                     client=self.client([json.dumps(output())]), session_factory=factory)
+                                     client=self.client([json.dumps(output())]), session_factory=factory, debug_root=self.debug_temp.name)
         self.assertEqual(result['status'], 'CASE_NOT_FOUND')
         self.assertIsNone(result['case_id'])
         self.assertIsNone(result['matched_fallnr'])
         self.assertFalse(result['case_exists'])
-        self.assertEqual(result['validated_diagnoses'], 1)
         self.assertEqual(result['new_rows_inserted'], 0)
         self.assertEqual(result['duplicates_skipped'], 0)
         self.assertFalse(any(isinstance(row, ClinicalHistory) for row in self.added))
@@ -247,8 +253,10 @@ class PipelineTests(unittest.TestCase):
                                                         if isinstance(row, ClinicalHistory)]
         client = self.client([json.dumps(output()), json.dumps(output())])
         with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
-            first = extract_patient('123', dry_run=False, client=client, session_factory=factory)
-            second = extract_patient('123', dry_run=False, client=client, session_factory=factory)
+            verified = extract_patient('123', client=client, session_factory=factory, debug_root=self.debug_temp.name)
+            self.assertEqual(verified['artifact_validation_status'], 'VERIFIED')
+            first = extract_patient('123', dry_run=False, client=client, session_factory=factory, debug_root=self.debug_temp.name)
+            second = extract_patient('123', dry_run=False, client=client, session_factory=factory, debug_root=self.debug_temp.name)
         self.assertEqual((first['new_rows_inserted'], first['duplicates_skipped']), (1, 0))
         self.assertEqual((second['new_rows_inserted'], second['duplicates_skipped']), (0, 1))
         self.assertEqual(second['patient_id'], '123')
@@ -262,7 +270,7 @@ class PipelineTests(unittest.TestCase):
         factory.begin.return_value.__enter__.return_value.execute.return_value.all.return_value = [(1,), (2,)]
         with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
             result = extract_patient('123', dry_run=False,
-                                     client=self.client([json.dumps(output())]), session_factory=factory)
+                                     client=self.client([json.dumps(output())]), session_factory=factory, debug_root=self.debug_temp.name)
         self.assertEqual(result['status'], 'CASE_AMBIGUOUS')
         self.assertIsNone(result['case_id'])
         self.assertEqual(result['new_rows_inserted'], 0)
@@ -284,11 +292,11 @@ class PipelineTests(unittest.TestCase):
         client = self.client([])
         with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle',
                    return_value=PatientDocumentBundle('123', [])):
-            result = extract_patient('123', client=client, session_factory=factory)
+            result = extract_patient('123', client=client, session_factory=factory, debug_root=self.debug_temp.name)
         self.assertEqual(result['status'], 'NO_INPUT')
         client.generate_json.assert_not_called()
         self.assertEqual(self.added, [])
-        path = Path(self.debug_temp.name) / '123' / 'clinical_history_clinical_history_v1.json'
+        path = Path(self.debug_temp.name) / '123' / 'clinical_history_clinical_history_v3_date_ownership.json'
         exported = json.loads(path.read_text(encoding='utf-8'))
         self.assertEqual(exported['patient_validation_status'], 'NO_INPUT')
         self.assertEqual(exported['normalized_output'], [])

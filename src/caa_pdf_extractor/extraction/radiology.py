@@ -17,7 +17,7 @@ from .case_resolver import resolve_case_id, CaseResolutionError
 from .debug_export import DEBUG_ROOT, run_debug_record
 from .radiology_inputs import procedure_context, report_text
 from .radiology_models import RadiologyExtraction
-from .radiology_validators import validate_radiology
+from .radiology_validators import validate_radiology, validate_independent_radiology
 from .validators import parse_json
 from .radiology_artifacts import (create_artifact, load_latest_artifact,
                                  verify_audit_anchor, VerifiedExtractionError)
@@ -48,9 +48,26 @@ def _commit_verified(patient_id, procedures, factory, client, debug_root):
             summary.update(case_id=case_id, resolved_case_id=case_id)
             session.execute(text('SELECT pg_advisory_xact_lock(:case_id)'), {'case_id': case_id})
             normalized, sources = verify_audit_anchor(artifact, procedures, session, case_id)
-            existing = {(r.mri_date, r.type, r.acute_lesion) for r in session.scalars(
-                select(Radiology).where(Radiology.case_id == case_id, Radiology.deleted.is_(False)))}
+            existing_rows = list(session.scalars(
+                select(Radiology).where(Radiology.case_id == case_id, Radiology.deleted.is_(False))))
+            existing = {(r.mri_date, r.type, r.acute_lesion) for r in existing_rows}
+            existing_counts = Counter((r.mri_date, r.type, r.acute_lesion) for r in existing_rows)
             by_id = {e['procedure']['procedure_id']: e for e in artifact['procedures']}
+            # Plan the entire source set before writes. Database identity alone
+            # cannot prove that two distinct reports describe the same study.
+            intended = {}
+            for p in procedures:
+                if p.modality != 'MRI': continue
+                event = by_id[p.procedure_id]['normalized_output']
+                for finding in event['findings']:
+                    identity = (event['mri_date'], finding['type'], finding['acute_lesion'])
+                    db_identity = (date.fromisoformat(identity[0]) if identity[0] else None, *identity[1:])
+                    if existing_counts[db_identity] > 1:
+                        raise VerifiedExtractionError('DUPLICATE_IDENTITY_AMBIGUOUS')
+                    owner = (p.source_document_id, p.procedure_id)
+                    if identity in intended and intended[identity] != owner:
+                        raise VerifiedExtractionError('DUPLICATE_IDENTITY_AMBIGUOUS')
+                    intended[identity] = owner
             inserted, skipped = 0, 0
             for p in procedures:
                 entry = by_id[p.procedure_id]
@@ -88,7 +105,7 @@ def _commit_verified(patient_id, procedures, factory, client, debug_root):
                 session.add(run)
                 session.flush()
                 records.append(run_debug_record(run))
-        summary.update(status='SUCCESS', validation_status='VERIFIED', verified_artifact_used=True,
+        summary.update(status='SUCCESS', validation_status=artifact['validation_status'], verified_artifact_used=True,
                        verified_artifact=str(path), artifact_sha256=artifact['artifact_sha256'],
                        model=artifact['model_name'], model_version=artifact['model_version'],
                        runtime=artifact['runtime'], new_rows_inserted=inserted, duplicates_skipped=skipped,
@@ -145,7 +162,9 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
                     status, errors = 'FAILED_PARSE', [{'type': 'invalid_json'}]
             if status == 'SUCCESS':
                 try:
-                    event = validate_radiology(raw, patient_id, procedure)
+                    event = validate_independent_radiology(raw, patient_id, procedure)
+                    status = event['validation_status']
+                    errors = [{'type':r['rejection_reason'],'field':r['field']} for r in event['rejected_records']] or None
                     normalized.append(event)
                 except (ValueError, ValidationError) as exc:
                     status = 'FAILED_VALIDATION'
@@ -180,13 +199,17 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
             inserted = skipped = 0
             per_event = {p.procedure_id: {'inserted': 0, 'duplicates_skipped': 0} for p in procedures}
             insertion_error = type(exc).__name__
+    if len(normalized) == sum(p.modality=='MRI' for p in procedures):
+        rejected = any(e.get('rejected_records') for e in normalized)
+        accepted = any(e.get('validation_status') in ('SUCCESS','PARTIAL_VALID') for e in normalized)
+        failure = ('PARTIAL_VALID' if accepted else 'FAILED_VALIDATION') if rejected else None
     counts = Counter(p.modality for p in procedures)
     summary = {'patient_id': patient_id, 'case_id': case_id, 'resolved_case_id': case_id,
                'diagnostic_procedures_selected': len(procedures),
                'rtg_count': counts['RTG'], 'ct_count': counts['CT'], 'mri_count': counts['MRI'],
-               'radiology_records_validated': sum(len(e['findings']) for e in normalized) if failure is None else 0,
-               'validation_status': failure or ('SUCCESS' if counts['MRI'] else 'NO_MRI_INPUT'),
-               'status': failure or insertion_status or ('SUCCESS' if procedures else 'NO_INPUT'),
+               'radiology_records_validated': sum(len(e['findings']) for e in normalized) if failure in (None,'PARTIAL_VALID') else 0,
+               'validation_status': insertion_status or failure or ('SUCCESS' if counts['MRI'] else 'NO_MRI_INPUT'),
+               'status': insertion_status or failure or ('SUCCESS' if procedures else 'NO_INPUT'),
                'new_rows_inserted': inserted, 'duplicates_skipped': skipped, 'dry_run': dry_run,
                'prompt_version': PROMPT_VERSION, 'model': client.model_name, 'runtime': client.runtime}
     records = []
@@ -203,11 +226,11 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
             run.raw_output = output
             records.append(run_debug_record(run))
     normalized = [{**event, 'case_id': case_id} for event in normalized]
-    if summary['status'] == 'SUCCESS' and counts['MRI']:
+    if summary['status'] in ('SUCCESS','PARTIAL_VALID') and counts['MRI']:
         path = create_artifact(patient_id, case_id, procedures, records,
                                model_name=client.model_name, model_version=client.model_version,
                                runtime=client.runtime, debug_root=debug_root)
-        summary.update(verified_artifact=str(path), artifact_validation_status='VERIFIED')
+        summary.update(verified_artifact=str(path), artifact_validation_status='PARTIAL_VALID' if summary['status']=='PARTIAL_VALID' else ('VERIFIED' if summary['radiology_records_validated'] else 'VERIFIED_EMPTY'))
     _save_debug(patient_id, summary, records, normalized, debug_root)
     return summary
 

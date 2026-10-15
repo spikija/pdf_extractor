@@ -4,7 +4,7 @@ from .examination_validators import record_key, whitespace
 
 
 class ExaminationIdentityError(ValueError):
-    status = 'AMBIGUOUS_EXAMINATION_IDENTITY'
+    status = 'DUPLICATE_IDENTITY_AMBIGUOUS'
 
     def __init__(self, details):
         self.details = details

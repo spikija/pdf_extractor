@@ -104,7 +104,10 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
                 try:
                     normalized = validate_family_history(raw, patient_id, inputs)
                 except ValueError as exc:
-                    status, error = 'FAILED_VALIDATION', type(exc).__name__
+                    # Internal validators contain fixed messages, never source quotations.
+                    error = ('UNSUPPORTED_RELATIVE_TERM' if str(exc) == 'Relative is not an explicitly supported family relationship'
+                             else str(exc) if type(exc) is ValueError else 'SCHEMA_VALIDATION_FAILED')
+                    status = 'FAILED_VALIDATION'
             with factory.begin() as session:
                 run = session.get(ExtractionRun, run_id)
                 run.status, run.model_version = status, client.model_version

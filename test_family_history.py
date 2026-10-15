@@ -63,8 +63,8 @@ class ValidationTests(unittest.TestCase):
 
     def test_ambiguous_relative_unknown(self):
         text = 'Familienanamnese: Verwandter hatte Demenz.'
-        result = self.validate(payload('Verwandter', 'Demenz', 'unknown', text), text)
-        self.assertEqual(result['family_history'][0]['relative_category'], 'unknown')
+        with self.assertRaisesRegex(ValueError, 'Vague relative degree'):
+            self.validate(payload('Verwandter', 'Demenz', 'unknown', text), text)
 
     def test_half_sibling_no_invented_convention(self):
         self.assertEqual(relative_category('Halbbruder'), 'unknown')

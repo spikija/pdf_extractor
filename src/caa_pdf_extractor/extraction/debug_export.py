@@ -42,7 +42,7 @@ def save_dry_run_debug(patient_id, prompt_version, runs, *, status, runtime,
         "clinical_rows_inserted": 0,
         "runs": records,
     }
-    path = (debug_root or DEBUG_ROOT) / patient_id / f"clinical_history_{prompt_version}.json"
+    path = Path(debug_root or DEBUG_ROOT) / patient_id / f"clinical_history_{prompt_version}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path

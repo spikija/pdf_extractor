@@ -10,12 +10,18 @@ SUPPORT = {
     'lobar': rf'(?=.*{HEMORRHAGE})(?=.*(?:frontal|parietal|temporal|okzipital|occipital|lob[äa]r|kortikal|cortical|mantelkante))',
     'basal ganglia': rf'(?=.*{HEMORRHAGE})(?=.*(?:basalgang|basal gang|putamen|globus pallidus|nucleus caudatus))',
     'subarachnoidal bleeding': rf'(?=.*{HEMORRHAGE})(?=.*(?:subarachnoid|subarachnoidal))',
-    'cmb': r'(?:mikroblutung|mikroblutungen|microbleed|microbleeds)',
+    'cmb': r'\b(?:mikroblutung(?:en)?|microbleeds?|microhemorrhages?|microhaemorrhages?|punktf[öo]rmige[nrms]?\s+H[äa]mosiderinablagerung(?:en)?|Mikro[-\s]H[äa]mosiderinresidu(?:um|en))\b',
     'css': r'(?:oberfl[äa]ch\w*\s+sideros|superficial\s+sideros|kortikal\w*\s+sideros)',
     'other': r'\b(?:other|sonstiger ph[äa]notyp)\b',
     'unknown': r'\b(?:unknown|unbekannter ph[äa]notyp)\b',
     'not specified': r'\b(?:not specified|nicht spezifizierter ph[äa]notyp)\b',
 }
+
+
+CAA_CLAIM = re.compile(
+    r'(?:Verdacht\s+auf|suspekt\s+f[üu]r|suspic\w*|v\.?\s*a\.?)\s+(?:eine[rn]?\s+)?(?:zerebral\w*\s+)?Amyloidangiopathie'
+    r'|vereinbar\s+mit\s+(?:eine[rn]?\s+)?(?:zerebral\w*\s+)?Amyloidangiopathie'
+    r'|Amyloidangiopathie\s+wahrscheinlich', re.I)
 
 
 def normalized_quote(text):
@@ -90,6 +96,10 @@ def validate_radiology(raw, patient_id, procedure):
         evidence = normalized_quote(item.evidence)
         if not re.search(SUPPORT[item.type], evidence, re.I):
             raise ValueError('Phenotype evidence does not support type')
+        if item.type == 'cmb' and re.search(
+                r'\b(?:kein\w*|ohne|no)\s+(?:\w+\s+){0,5}(?:'+SUPPORT['cmb']+r')',
+                evidence_context(evidence, report), re.I):
+            raise ValueError('Negated phenotype')
         # Reject direct negations of the phenotype rather than unrelated negative
         # observations such as no midline shift in the same supporting snippet.
         if re.search(r'\b(?:kein\w*|ohne|no)\s+(?:\w+\s+){0,3}(?:mikroblutung\w*|microbleed\w*|h[äa]matom\w*|blutung\w*|sideros\w*)', evidence, re.I):
@@ -104,7 +114,7 @@ def validate_radiology(raw, patient_id, procedure):
             findings.append(item.model_dump(mode='json'))
             seen.add(key)
     additional = result.additional_findings
-    if (re.search(r'\bVerdacht\s+auf\s+Amyloidangiopathie\b', report, re.I)
+    if (CAA_CLAIM.search(report)
             and (additional.caa_suspicion_explicit is False
                  or (result.findings and additional.caa_suspicion_explicit is not True))):
         raise ValueError('Explicit source CAA suspicion omitted or contradicted')
@@ -116,7 +126,7 @@ def validate_radiology(raw, patient_id, procedure):
         quote = additional.caa_evidence or ''
         if not re.search(r'amyloidangiopath|amyloid angiopath', quote, re.I):
             raise ValueError('CAA claim lacks explicit source evidence')
-        if additional.caa_suspicion_explicit is True and not re.search(r'verdacht|suspekt|suspic|v\.?\s*a\.?', quote, re.I):
+        if additional.caa_suspicion_explicit is True and not CAA_CLAIM.search(quote):
             raise ValueError('CAA suspicion not explicitly stated')
         if additional.caa_suspicion_explicit is True and re.search(r'\b(?:kein\w*|ohne|no)\b', quote, re.I):
             raise ValueError('CAA suspicion is negated')
@@ -133,3 +143,100 @@ def validate_radiology(raw, patient_id, procedure):
             'additional_findings': additional.model_dump(mode='json'),
             'metadata_reconciliation': reconciled,
             'acuity_rule_version': ACUITY_RULE_VERSION, 'acuity_reconciliation': acuity_reconciliation}
+
+
+def source_sentences(text):
+    """Exact spans, preserving source whitespace, dates and internal spelling."""
+    start = 0
+    for match in re.finditer(r'[.!?](?:\s+)(?=[A-ZÄÖÜ])|\n\s*\n', text):
+        end = match.start()+1 if text[match.start()] in '.!?' else match.start()
+        if text[start:end].strip(): yield text[start:end].strip()
+        start = match.end()
+    if text[start:].strip(): yield text[start:].strip()
+
+
+def validate_independent_radiology(raw, patient_id, procedure):
+    """Separate findings/auxiliary fields after checking the trusted envelope."""
+    from copy import deepcopy
+    from .radiology_models import Phenotype, AdditionalFindings
+    parsed = parse_json(raw)
+    if (procedure.modality != 'MRI' or procedure.patient_id != patient_id
+            or not isinstance(parsed,dict) or parsed.get('patient_id') != patient_id
+            or parsed.get('procedure_id') != procedure.procedure_id):
+        raise ValueError('Patient/procedure provenance mismatch')
+    if not isinstance(parsed.get('findings'),list) or not isinstance(parsed.get('additional_findings'),dict):
+        raise ValueError('Invalid radiology envelope')
+    allowed = set(RadiologyExtraction.model_fields)
+    if set(parsed)-allowed: raise ValueError('Invalid radiology envelope')
+    report = report_text(procedure)
+    sentences = list(source_sentences(report))
+    neutral = {'caa_suspicion_explicit':None,'caa_evidence':None,
+               'microbleed_description':None,'other_findings':[]}
+    # Positive explicit imaging claims are deterministic source metadata.
+    caa = next((s for s in sentences if CAA_CLAIM.search(normalized_quote(s))
+                and not re.search(r'\b(?:kein\w*|ohne|no)\b',s,re.I) and len(s)<=800),None)
+    if caa: neutral.update(caa_suspicion_explicit=True,caa_evidence=caa)
+    def validate(findings, additional):
+        payload = {**parsed,'findings':findings,'additional_findings':additional}
+        return validate_radiology(json.dumps(payload),patient_id,procedure)
+    accepted, rejected, reconciliation = [], [], []
+    for n, raw_record in enumerate(parsed['findings']):
+        try:
+            item = Phenotype.model_validate_json(json.dumps(raw_record)).model_dump(mode='json')
+            model_type = item['type']
+            exact = normalized_quote(item['evidence']) in normalized_quote(report)
+            if exact and item['type']=='other' and re.search(SUPPORT['cmb'],item['evidence'],re.I):
+                item['type']='cmb'
+                reconciliation.append({'index':n,'model_type':model_type,'normalized_type':'cmb',
+                                       'normalization_method':'deterministic_phenotype_rule'})
+            if not exact and item['type']=='cmb':
+                # Candidate selects a phenotype; an explicit positive source statement is the evidence.
+                for span in sentences:
+                    if len(span)>800 or not re.search(SUPPORT['cmb'],span,re.I): continue
+                    candidate = {**item,'evidence':span}
+                    try: validate([candidate],neutral)
+                    except ValueError: continue
+                    item=candidate
+                    reconciliation.append({'index':n,'model_evidence':raw_record['evidence'],
+                        'source_evidence':span,'normalization_method':'explicit_source_phenotype_span'})
+                    break
+            checked = validate([item],neutral)
+            accepted.extend(checked['findings'])
+        except (ValueError,TypeError,KeyError) as exc:
+            rejected.append({'field':f'findings[{n}]','record':raw_record,'rejection_reason':str(exc)})
+    additional = deepcopy(neutral)
+    raw_additional = parsed['additional_findings']
+    if set(raw_additional) != set(AdditionalFindings.model_fields):
+        raise ValueError('Invalid additional findings envelope')
+    # The CAA pair is one unit; independently of phenotype persistence.
+    pair = {k:raw_additional[k] for k in ('caa_suspicion_explicit','caa_evidence')}
+    if caa:
+        if pair != {k:neutral[k] for k in pair}:
+            reconciliation.append({'field':'caa','model_value':pair,'source_evidence':caa,
+                                   'normalization_method':'explicit_source_caa_claim'})
+    else:
+        try:
+            checked = validate([],{**neutral,**pair})
+            additional.update(pair)
+        except (ValueError,TypeError) as exc:
+            rejected.append({'field':'additional_findings.caa','record':pair,'rejection_reason':str(exc)})
+    micro = raw_additional['microbleed_description']
+    try:
+        validate([],{**neutral,'microbleed_description':micro})
+        additional['microbleed_description']=micro
+    except (ValueError,TypeError) as exc:
+        rejected.append({'field':'additional_findings.microbleed_description','record':micro,'rejection_reason':str(exc)})
+    others = raw_additional['other_findings']
+    if not isinstance(others,list) or len(others)>30: raise ValueError('Invalid other findings list')
+    for n, quote in enumerate(others):
+        try:
+            validate([],{**neutral,'other_findings':[quote]})
+            additional['other_findings'].append(quote)
+        except (ValueError,TypeError) as exc:
+            rejected.append({'field':f'additional_findings.other_findings[{n}]','record':quote,'rejection_reason':str(exc)})
+    event = validate(accepted,additional)
+    # A rejected phenotype with no valid phenotype cannot be disguised as verified empty.
+    accepted_count = len(event['findings']) + sum(v is not None for k,v in additional.items() if k!='other_findings') + len(additional['other_findings'])
+    status = ('PARTIAL_VALID' if accepted_count else 'FAILED_VALIDATION') if rejected else 'SUCCESS'
+    return {**event,'rejected_records':rejected,'validation_status':status,
+            'evidence_reconciliation':reconciliation}

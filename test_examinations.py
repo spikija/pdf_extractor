@@ -241,7 +241,7 @@ class PipelineTests(unittest.TestCase):
         return r
 
     def artifact(self): return sorted(Path(self.temp.name,'123','verified').glob('examinations_*.json'))[-1]
-    def debug(self): return json.loads(Path(self.temp.name,'123','examinations_examinations_v1.json').read_text(encoding='utf-8'))
+    def debug(self): return json.loads(Path(self.temp.name,'123','examinations_examinations_v2_source_result.json').read_text(encoding='utf-8'))
 
     def test_dry_run_then_inference_free_commit_and_idempotency(self):
         dry=self.extract(); original=self.debug()['normalized_output']
@@ -266,10 +266,12 @@ class PipelineTests(unittest.TestCase):
         with patch('caa_pdf_extractor.extraction.examination_artifacts.PROMPT_VERSION','examinations_v2'):
             self.assertEqual(self.extract(dry_run=False)['status'],'VERIFIED_EXTRACTION_STALE')
 
-    def test_malformed_json_and_pydantic_failure_preserve_raw(self):
-        for raw,status in (('not JSON','FAILED_PARSE'),(json.dumps({'patient_id':'123'}),'FAILED_VALIDATION')):
-            self.assertEqual(self.extract(response=raw)['status'],status)
-            self.assertEqual(self.runs[len(self.runs)].raw_output['response'],raw)
+    def test_model_output_cannot_rewrite_deterministic_source_result(self):
+        for raw in ('not JSON',json.dumps({'patient_id':'123'})):
+            self.assertEqual(self.extract(response=raw)['status'],'SUCCESS')
+            self.client.generate_json.assert_not_called()
+            event=self.runs[len(self.runs)].raw_output['normalized_output']
+            self.assertIn(event['records'][0]['result'],self.section.text)
             self.assertEqual(self.rows,[])
 
     def test_case_not_found(self):
@@ -291,11 +293,11 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(self.extract(dry_run=False)['status'],'VERIFIED_EXTRACTION_INVALID')
         self.assertEqual(self.rows,[])
 
-    def test_verified_empty_commit(self):
+    def test_model_empty_cannot_discard_a_selected_source_report(self):
         p=payload(); p['records']=[]
         self.extract(response=json.dumps(p))
         r=self.extract(dry_run=False)
-        self.assertEqual(r['status'],'SUCCESS'); self.assertEqual(r['new_rows_inserted'],0)
+        self.assertEqual(r['status'],'SUCCESS'); self.assertEqual(r['new_rows_inserted'],1)
 
     def test_same_identity_different_result_reuses_existing_without_overwrite(self):
         self.extract(); self.extract(dry_run=False)
@@ -349,7 +351,7 @@ class PipelineTests(unittest.TestCase):
             self.client.generate_json.reset_mock(); self.client.generate_json.side_effect=AssertionError('No new model call')
             result=extract_patient('123',dry_run=False,client=self.client,session_factory=self.factory,debug_root=self.temp.name)
         self.client.generate_json.assert_not_called()
-        self.assertEqual(result['status'],'AMBIGUOUS_EXAMINATION_IDENTITY')
+        self.assertEqual(result['status'],'DUPLICATE_IDENTITY_AMBIGUOUS')
         self.assertEqual(len(result['unresolved_identity_ambiguities']),1)
         self.assertEqual(self.rows,[])
 

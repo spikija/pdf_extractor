@@ -1,7 +1,7 @@
 import json
 from ..extraction.examination_models import ExaminationExtraction
 
-PROMPT_VERSION = 'examinations_v1'
+PROMPT_VERSION = 'examinations_v2_source_result'
 INSTRUCTIONS = """Extract this ONE documented diagnostic-procedure report.
 The examinations table stores instrument-based procedures, not neurological
 status, NIHSS, cognition, blood pressure, medication or laboratory results.

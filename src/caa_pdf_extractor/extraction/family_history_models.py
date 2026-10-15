@@ -5,9 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from .family_history_inputs import FAMILY, KINSHIP
 from .validators import parse_json
 
-RULE_VERSION = 'kinship_v1'
+RULE_VERSION = 'kinship_v2'
 CATEGORIES = ('first grade', 'second grade', 'unknown', 'not specified')
-FIRST = re.compile(r'\b(?:Mutter|Vater|Tochter|Sohn|Schwester|Bruder|mother|father|daughter|son|sister|brother|sibling)\b', re.I)
+FIRST = re.compile(r'\b(?:Mutter|Vater|Tochter|Sohn|Schwestern?|Bruder|Brüder|Geschwister|mother|father|daughter|son|sister|brother|sibling)\b', re.I)
 SECOND = re.compile(r'\b(?:Großmutter|Grossmutter|Großvater|Grossvater|Tante|Onkel|Nichte|Neffe|Enkel\w*|grandmother|grandfather|grandparent|aunt|uncle|niece|nephew|grandchild)\b', re.I)
 NEGATIVE = re.compile(r'\b(?:negativ\w*|negative|unauffällig|unauffaellig|keine?\b|kein\w*|ohne|verneint|gesund\w*|healthy|no|denies|none)\b', re.I)
 GENETIC = re.compile(r'\b(?:APOE|genotyp\w*|genetic\s+test|Gentest|Alle[l]?\w*)\b', re.I)
@@ -22,6 +22,11 @@ def normalize(value):
 def relative_category(relative):
     if relative is None:
         return 'not specified'
+    if re.search(r'\bVerwandt\w*\b', relative, re.I):
+        if re.search(r'\b(?:ersten|1\.)\s+Grades\b', relative, re.I):
+            return 'first grade'
+        if re.search(r'\b(?:zweiten|2\.)\s+Grades\b', relative, re.I):
+            return 'second grade'
     # No project convention exists for half-siblings; do not infer a degree.
     if re.search(r'\b(?:Halb\w*|half[- ]?\w*)\b', relative, re.I):
         return 'unknown'
@@ -79,6 +84,8 @@ def validate_family_history(raw, patient_id, inputs):
                 and (KINSHIP.search(c) or FAMILY.search(c) or family_context) for c in supported):
             raise ValueError('No positive family-attributed disease evidence')
         category = relative_category(relative)
+        if relative is not None and category == 'unknown' and re.search(r'\b(?:Verwandt\w*|Familie|Angehörige)\b', relative, re.I):
+            raise ValueError('Vague relative degree is not explicit')
         if record.relative_category is not None and record.relative_category != category:
             raise ValueError('Unsupported relative category')
         if record.relative_category != category:

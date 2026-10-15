@@ -132,7 +132,7 @@ class LayoutTests(unittest.TestCase):
 
     def test_missing_table_header_rejected(self):
         tokens = page_tokens([word('CRP', 10, 40), word('mg/dL', 120, 40), word('0.01', 200, 40)], 1)
-        self.assertIn('AMBIGUOUS_LAYOUT', extract_page(tokens, 1)[0]['issues'])
+        self.assertEqual(extract_page(tokens, 1), [])
 
     def test_reference_cells_excluded(self):
         tokens = fixture(values=('0.01',))

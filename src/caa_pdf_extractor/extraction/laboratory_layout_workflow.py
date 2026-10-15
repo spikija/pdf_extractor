@@ -28,6 +28,9 @@ def observation_fingerprint(patient_id, candidate):
 def observations(patient_id, case_id, candidates):
     result = []
     for candidate in candidates:
+        if candidate['audit_only']:
+            # Unsupported units and reference/IFCC values remain in the source audit.
+            continue
         if candidate['validation_status'] != 'VALID' or candidate['issues']:
             raise VerifiedExtractionError('LAYOUT_VALIDATION_FAILED')
         if (candidate['audit_only'] or candidate['biomarker'] not in ('crp', 'hba1c')):

@@ -15,6 +15,8 @@ family-history heading; its disease can have an unspecified relative. Copy from
 the supporting passage. One record per relative/disease. Do not turn vague
 neurological disease into dementia or another specific diagnosis.
 Mutter/Vater/Tochter/Sohn/Schwester/Bruder and English equivalents: first grade.
+Brüder, Schwestern and Geschwister are explicit plural sibling terms: first grade.
+Do not assign a degree to Familie, Angehörige or Verwandte without explicit degree.
 Grandparents, aunt/uncle, niece/nephew, grandchildren: second grade.
 Unspecified familial disease: relative=null, relative_category=not specified.
 Unmappable explicit relative (including half-siblings): unknown.

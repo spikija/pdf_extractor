@@ -10,7 +10,7 @@ HEADER = re.compile(r'^\s*(?:ECHOKARDIOGRAPHIE\b[^\n]*|'
     r'(?:(?:Amyloid|FDG)[- ]PET(?:[- /]CT)?|PET(?:[- /]CT)?\s+\(?(?:Amyloid|FDG)|SPECT|'
     r'(?:MRT|MRI|Magnetresonanztomographie)\s+(?:Abdomen|K[öo]rper|Ganzk[öo]rper|body))\b[^\n]*)', re.I | re.M)
 STOP = re.compile(r'^\s*(?:Ambulanzbrief\b|Therapieempfehlung\b|Beurteilung\s*:|'
-    r'Internistisches\s+Konsil|Computertomograf\w*\s*:|Magnetresonanz\w*\s*:|'
+    r'Internistisches[^\n]*Konsil|Gray-Weale-Klassifikation\s*:|Computertomograf\w*\s*:|Magnetresonanz\w*\s*:|'
     r'Laborwerte\b|Mikrobiologie\b|Bakteriologie\b|Neurologischer\s+Status\b|NIHSS\b|MMSE\b|MoCA\b|'
     r'(?:CT|MRT|MRI)\s+(?:Sch[äa]del|Gehirn|brain)\b|Medikation\b|Mit freundlichen|Universit[äa]tsklinikum\b)', re.I | re.M)
 PLANNED = re.compile(r'\b(?:empfohlen|geplant|vorgesehen|angefordert|scheduled|recommended)\b', re.I)
@@ -71,6 +71,41 @@ def header_mapping(header, body):
     return kind, location
 
 
+SUBREPORT = re.compile(r'^[ \t]*(?P<label>(?:Extrakran\w*|Extracran\w*|Transkran\w*|Transcran\w*|Transtemporal)[^\n]*)', re.I | re.M)
+SIDE = re.compile(r'^[ \t]*(?:Links|Rechts|Left|Right)\s*:', re.I | re.M)
+
+
+def split_subreports(body):
+    """Return exact, explicit anatomy spans; never guess a mixed boundary."""
+    matches = list(SUBREPORT.finditer(body))
+    if not matches:
+        return []
+    groups = []
+    for match in matches:
+        location = 'neck vessels' if re.match(r'extra', match['label'], re.I) else 'brain'
+        if not groups or groups[-1][1] != location:
+            groups.append((match.start(), location))
+    if len({location for _, location in groups}) < 2:
+        return []
+    # Do not silently discard findings preceding the first explicit subreport.
+    if body[:groups[0][0]].strip():
+        raise ValueError('Mixed anatomy has unassigned introductory findings')
+    spans = []
+    for index, (start, location) in enumerate(groups):
+        end = groups[index+1][0] if index+1 < len(groups) else len(body)
+        span = body[start:end].strip()
+        sides = list(SIDE.finditer(span))
+        if len(sides) >= 2:
+            # Only split when every side is explicitly labelled, preserving the exact slice.
+            for n, side in enumerate(sides):
+                tail = sides[n+1].start() if n+1 < len(sides) else len(span)
+                text = span[side.start():tail].strip()
+                spans.append((location, text, f'sub{index+1:02d}_side{n+1:02d}'))
+        else:
+            spans.append((location, span, f'sub{index+1:02d}'))
+    return spans
+
+
 def select_examination_inputs(bundle):
     inputs = []
     for document in bundle.documents:
@@ -87,6 +122,18 @@ def select_examination_inputs(bundle):
                 body = section.text[match.end():end].strip()
                 if not body: continue
                 text = section.text[match.start():end].strip()
+                split = split_subreports(body) if re.search(r'neuroson|duplex|doppler|ultras', header, re.I) else []
+                if split:
+                    for location, span, suffix in split:
+                        # Both header and result are literal source spans. Parent date is explicit.
+                        first_line = span.splitlines()[0].strip()
+                        # A label is the header; the finding after ':' remains result evidence.
+                        subheader = first_line.split(':', 1)[0] + ':' if ':' in first_line else first_line
+                        inputs.append(ExaminationInput(bundle.patient_id,
+                            f'{section.section_id}_exam{index+1:02d}_{suffix}', document.source_document_id,
+                            section.section_id, section.page_start, subheader, span, 'ultrasound',
+                            location, header_date(header)))
+                    continue
                 kind, location = header_mapping(header,body)
                 inputs.append(ExaminationInput(bundle.patient_id, f'{section.section_id}_exam{index+1:02d}',
                     document.source_document_id, section.section_id, section.page_start, header, text,

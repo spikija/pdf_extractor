@@ -32,7 +32,9 @@ def _save_debug(patient_id, summary, records, debug_root):
     return path
 
 
-def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=None, debug_root=None):
+def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_factory=None, debug_root=None):
+    if not dry_run:
+        raise ValueError("Use verified artifact commit")
     factory = session_factory or SessionLocal
     bundle = build_patient_bundle(patient_id, factory)
     inputs = select_medication_inputs(bundle)
@@ -98,22 +100,6 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
                 insertion_status = exc.status
             else:
                 matched_fallnr = patient_id
-                if not dry_run:
-                    session.execute(text("SELECT pg_advisory_xact_lock(:case_id)"), {"case_id": case_id})
-                    existing = {medication_key(row) for row in session.scalars(
-                        select(Medication).where(Medication.case_id == case_id))}
-                    for item in items:
-                        key = medication_key(item)
-                        if key in existing:
-                            skipped += 1
-                            continue
-                        session.add(Medication(case_id=case_id, medication=item.medication,
-                                               date_noted=item.date_noted or null(),
-                                               date_stopped=item.date_stopped or null(),
-                                               medication_category=item.medication_category or null(),
-                                               deleted=False))
-                        existing.add(key)
-                        inserted += 1
     summary = {"patient_id": patient_id, "case_id": case_id, "matched_fallnr": matched_fallnr,
                "sections_used": len(inputs), "section_ids": [item.section_id for item in inputs],
                "tables_used": sum(len(item.tables) for item in inputs),
@@ -137,8 +123,39 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
             run.raw_output = output
             records.append(run_debug_record(run))
     _save_debug(patient_id, summary, records, debug_root)
+    summary["_run_ids"] = runs
+    summary["_bundle"] = bundle
     return summary
 
+
+
+def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=None, debug_root=None):
+    from .document_artifacts import create, commit
+    from ..database import SessionLocal
+    from ..database.models import ExtractionRun
+    factory = session_factory or SessionLocal
+    if not dry_run:
+        return commit('medications', patient_id, build_patient_bundle(patient_id, factory),
+                      client=client, session_factory=factory, debug_root=debug_root)
+    client = client or get_client()
+    result = _extract_dry_patient(patient_id, dry_run=True, client=client, session_factory=factory, debug_root=debug_root)
+    result['granite_called'] = client.runtime != 'mock' and result.get('sections_used',0) > 0
+    bundle = result.pop('_bundle', None)
+    run_ids = result.pop('_run_ids', [])
+    if result['status'] != 'SUCCESS': return result
+    with factory.begin() as session:
+        try: case_id = resolve_case_id(patient_id, session=session)
+        except CaseResolutionError as exc:
+            result.update(status=exc.status, validation_status=exc.status)
+            return result
+        # IDs from this dry-run, captured directly rather than selecting older audits.
+        runs = [session.get(ExtractionRun, run_id) for run_id in run_ids]
+        for run in runs:
+            run.raw_output = {**run.raw_output, 'case_id':case_id, 'matched_fallnr':patient_id}
+        path = create('medications',bundle,case_id,runs,client,debug_root)
+    result.update(case_id=case_id,resolved_case_id=case_id,matched_fallnr=patient_id,
+                  case_exists=True,verified_artifact=str(path),artifact_validation_status='VERIFIED')
+    return result
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)

@@ -14,7 +14,8 @@ def fingerprint(item):
     return digest({'extraction_type': 'examinations', 'patient_id': item.patient_id,
                    'source_document_id': item.source_document_id, 'section_ids': [item.section_id],
                    'context': item.context(), 'source_text': item.text,
-                   'prompt_version': PROMPT_VERSION, 'actual_prompt': examination_prompt(item)})
+                   'prompt_version': PROMPT_VERSION, 'actual_prompt': examination_prompt(item),
+                   'result_policy':'exact_source_subreport_v1'})
 
 
 def save_artifact(patient_id, case_id, inputs, records, client, debug_root):

@@ -3,7 +3,8 @@ from datetime import date
 import re
 
 UNRELATED_HEADING = re.compile(
-    r'^\s*(?:Internistisches\s+Konsil|\w*\s+Konsil\s*\(|'
+    r'^\s*(?:Historischer\s+(?:CT|MRI|MRT)[- ]Befund|Vorbefund\s*:\s*(?:CT|MRI|MRT)|'
+    r'Internistisches\s+Konsil|\w*\s+Konsil\s*\(|'
     r'ECHOKARDIOGRAPHIE|EKG\b|EEG\b|Laborwerte\b|Zusammenfassung\s+des\s+Aufenthalts|'
     r'Weitere\s+empfohlene\s+Ma.nahmen|Entlassungsmedikation)\b', re.I | re.M)
 

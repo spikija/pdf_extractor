@@ -166,6 +166,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(exported['normalized_output'][0]['medication'], 'Ramipril 5 mg 1-0-0')
 
     def test_successful_commit_internal_key_and_explicit_sql_nulls(self):
+        self.run_extract()
         result = self.run_extract(dry_run=False)
         self.assertEqual(result['new_rows_inserted'], 1)
         row = self.rows[0]
@@ -176,6 +177,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(row.medication, 'Ramipril 5 mg 1-0-0')
 
     def test_second_commit_idempotent(self):
+        self.run_extract()
         first = self.run_extract(dry_run=False)
         # Simulate database round-trip: explicit SQL NULL values become None.
         for row in self.rows:
@@ -199,28 +201,28 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(self.rows, [])
 
     def test_malformed_granite_json_retained(self):
-        result = self.run_extract('not JSON', dry_run=False)
+        result = self.run_extract('not JSON', dry_run=True)
         self.assertEqual(result['status'], 'FAILED_PARSE')
         self.assertEqual(self.rows, [])
         self.assertEqual(self.runs[1].raw_output['response'], 'not JSON')
         self.assertIsNotNone(self.runs[1].validation_errors)
 
     def test_validation_failure_inserts_nothing(self):
-        result = self.run_extract(json.dumps(payload(medication_category='invalid')), dry_run=False)
+        result = self.run_extract(json.dumps(payload(medication_category='invalid')), dry_run=True)
         self.assertEqual(result['status'], 'FAILED_VALIDATION')
         self.assertEqual(self.rows, [])
         self.assertIsNotNone(self.runs[1].validation_errors)
 
     def test_any_document_failure_blocks_entire_patient(self):
         b = bundle(section(), section(sid='doc2_sec01', doc=2))
-        result = self.run_extract([json.dumps(payload()), 'not JSON'], dry_run=False, source_bundle=b)
+        result = self.run_extract([json.dumps(payload()), 'not JSON'], dry_run=True, source_bundle=b)
         self.assertEqual(result['validated_medications'], 0)
         self.assertEqual(self.rows, [])
         self.assertEqual(self.runs[1].raw_output['normalized_output'], [])
         self.assertEqual(self.runs[2].status, 'FAILED_PARSE')
 
     def test_model_failure(self):
-        result = self.run_extract([RuntimeError('Synthetic failure')], dry_run=False)
+        result = self.run_extract([RuntimeError('Synthetic failure')], dry_run=True)
         self.assertEqual(result['status'], 'FAILED_MODEL')
         self.assertEqual(self.rows, [])
 

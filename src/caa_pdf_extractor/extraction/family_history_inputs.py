@@ -4,7 +4,7 @@ import re
 from .radiology_artifacts import digest
 
 FAMILY = re.compile(r'\b(?:Familienanamnese|family\s+history|famili\w*|familial|family)\b', re.I)
-KINSHIP = re.compile(r'\b(?:Mutter|Vater|Tochter|Sohn|Schwester|Bruder|Großmutter|Grossmutter|Großvater|Grossvater|Tante|Onkel|Nichte|Neffe|Enkel\w*|Halb(?:bruder|schwester)|half[- ](?:brother|sister|sibling)|Cousin\w*|Kusine|Verwandt\w*|Ehefrau|Ehemann|mother|father|daughter|son|sister|brother|sibling|grandmother|grandfather|grandparent|aunt|uncle|niece|nephew|grandchild|cousin|relative|wife|husband)\b', re.I)
+KINSHIP = re.compile(r'\b(?:Mutter|Vater|Tochter|Sohn|Schwestern?|Bruder|Brüder|Geschwister|Großmutter|Grossmutter|Großvater|Grossvater|Tante|Onkel|Nichte|Neffe|Enkel\w*|Halb(?:bruder|schwester)|half[- ](?:brother|sister|sibling)|Cousin\w*|Kusine|Verwandt\w*|Ehefrau|Ehemann|mother|father|daughter|son|sister|brother|sibling|grandmother|grandfather|grandparent|aunt|uncle|niece|nephew|grandchild|cousin|relative|wife|husband)\b', re.I)
 HEADING = re.compile(r'^\s*(?:Familienanamnese|Family\s+history)\s*:?(.*)$', re.I)
 BOUNDARY = re.compile(r'^\s*(?:Eigenanamnese|Sozialanamnese|Medikation|Medikamente|Labor\w*|Genetik|Neurologischer\s+Status|Diagnosen|Therapie\w*|Anamnese)\s*:', re.I)
 

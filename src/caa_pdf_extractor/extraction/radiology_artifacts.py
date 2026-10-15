@@ -12,7 +12,7 @@ from ..llm.radiology_prompts import PROMPT_VERSION, radiology_prompt
 from .debug_export import DEBUG_ROOT
 from .radiology_inputs import procedure_context
 from .radiology_models import RadiologyExtraction
-from .radiology_validators import ACUITY_RULE_VERSION, validate_radiology
+from .radiology_validators import ACUITY_RULE_VERSION, validate_radiology, validate_independent_radiology
 
 
 class VerifiedExtractionError(ValueError):
@@ -30,7 +30,8 @@ def source_fingerprint(procedure):
     return digest({'context': procedure_context(procedure), 'result_text': procedure.result_text,
                    'source_text': procedure.source_text, 'prompt_version': PROMPT_VERSION,
                    'acuity_rule_version': ACUITY_RULE_VERSION,
-                   'actual_prompt': radiology_prompt(procedure, RadiologyExtraction.model_json_schema())})
+                   'actual_prompt': radiology_prompt(procedure, RadiologyExtraction.model_json_schema()),
+                   'validation_policy': Path(__file__).with_name('radiology_validators.py').read_text(encoding='utf-8')})
 
 
 def artifact_directory(patient_id, debug_root=None):
@@ -46,14 +47,20 @@ def create_artifact(patient_id, case_id, procedures, records, *, model_name, mod
     for p in procedures:
         r = by_id[p.procedure_id]
         expected = 'SUCCESS' if p.modality == 'MRI' else 'SKIPPED_NON_MRI'
-        if r['status'] != expected:
+        if r['status'] not in (('SUCCESS','PARTIAL_VALID','FAILED_VALIDATION') if p.modality=='MRI' else (expected,)):
+            raise VerifiedExtractionError('NO_VERIFIED_EXTRACTION')
+        if p.modality=='MRI' and r['normalized_output'] is None:
             raise VerifiedExtractionError('NO_VERIFIED_EXTRACTION')
         entries.append({'procedure': procedure_context(p), 'source_fingerprint': source_fingerprint(p),
                         'source_run_id': r['run_id'], 'model_name': r['model_name'],
                         'model_version': r['model_version'], 'normalized_output': r['normalized_output']})
     created = datetime.now(timezone.utc)
+    accepted = [{'procedure_id':e['procedure']['procedure_id'], **f} for e in entries if e['normalized_output'] for f in e['normalized_output']['findings']]
+    rejected = [{'procedure_id':e['procedure']['procedure_id'], **r} for e in entries if e['normalized_output'] for r in e['normalized_output'].get('rejected_records',[])]
+    validation_status = 'PARTIAL_VALID' if rejected else 'VERIFIED' if accepted else 'VERIFIED_EMPTY'
     artifact = {'artifact_version': 1, 'patient_id': patient_id, 'resolved_case_id': case_id,
-                'validation_status': 'VERIFIED', 'created_at': created.isoformat(),
+                'validation_status': validation_status, 'created_at': created.isoformat(),
+                'accepted_records':accepted, 'rejected_records':rejected,
                 'prompt_version': PROMPT_VERSION, 'acuity_rule_version': ACUITY_RULE_VERSION,
                 'model_name': model_name, 'model_version': model_version, 'runtime': runtime,
                 'procedures': entries}
@@ -77,7 +84,7 @@ def load_latest_artifact(patient_id, procedures, *, client=None, debug_root=None
         if checksum != digest(artifact):
             raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         artifact['artifact_sha256'] = checksum
-        if (artifact['validation_status'] != 'VERIFIED' or artifact['artifact_version'] != 1
+        if (artifact['validation_status'] not in ('VERIFIED','VERIFIED_EMPTY','PARTIAL_VALID') or artifact['artifact_version'] != 1
                 or artifact['patient_id'] != patient_id
                 or type(artifact['resolved_case_id']) is not int
                 or artifact['resolved_case_id'] <= 0):
@@ -126,7 +133,7 @@ def verify_audit_anchor(artifact, procedures, session, case_id):
             p = by_id[entry['procedure']['procedure_id']]
             run = session.get(ExtractionRun, entry['source_run_id'])
             expected = 'SUCCESS' if p.modality == 'MRI' else 'SKIPPED_NON_MRI'
-            if (run is None or run.status != expected or run.prompt_version != artifact['prompt_version']
+            if (run is None or run.status not in (('SUCCESS','PARTIAL_VALID','FAILED_VALIDATION') if p.modality=='MRI' else (expected,)) or run.prompt_version != artifact['prompt_version']
                     or run.source_document_id != p.source_document_id
                     or run.model_name != entry['model_name'] or run.model_version != entry['model_version']
                     or run.model_name != artifact['model_name']):
@@ -134,20 +141,27 @@ def verify_audit_anchor(artifact, procedures, session, case_id):
             raw = run.raw_output
             if (raw['dry_run'] is not True or raw['patient_id'] != artifact['patient_id']
                     or raw['procedure'] != entry['procedure']
-                    or raw['resolved_case_id'] != case_id or raw['patient_validation_status'] != 'SUCCESS'
-                    or raw['insertion_status'] != 'SUCCESS'
+                    or raw['resolved_case_id'] != case_id or raw['patient_validation_status'] not in ('SUCCESS','PARTIAL_VALID')
+                    or raw['insertion_status'] not in ('SUCCESS','PARTIAL_VALID')
                     or raw['normalized_output'] != entry['normalized_output']):
                 raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
             if p.modality == 'MRI':
                 if entry['model_version'] != artifact['model_version']:
                     raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
-                event = {**validate_radiology(raw['response'], artifact['patient_id'], p), 'case_id': case_id}
+                event = {**validate_independent_radiology(raw['response'], artifact['patient_id'], p), 'case_id': case_id}
+                if run.status != event['validation_status']: raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
                 if event != entry['normalized_output']:
                     raise VerifiedExtractionError('VERIFIED_EXTRACTION_STALE')
                 normalized.append(entry['normalized_output'])
             elif entry['normalized_output'] is not None:
                 raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
             sources[p.procedure_id] = run
+        accepted = [{'procedure_id':e['procedure_id'],**f} for e in normalized for f in e['findings']]
+        rejected = [{'procedure_id':e['procedure_id'],**r} for e in normalized for r in e.get('rejected_records',[])]
+        if 'accepted_records' in artifact:
+            status = 'PARTIAL_VALID' if rejected else 'VERIFIED' if accepted else 'VERIFIED_EMPTY'
+            if (artifact['accepted_records'] != accepted or artifact['rejected_records'] != rejected or artifact['validation_status']!=status):
+                raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         return normalized, sources
     except VerifiedExtractionError:
         raise

@@ -13,7 +13,7 @@ from ..preparation import build_patient_bundle
 from .case_resolver import resolve_case_id, CaseResolutionError
 from .debug_export import DEBUG_ROOT, run_debug_record
 from .examination_inputs import select_examination_inputs
-from .examination_validators import validate_examinations, record_key
+from .examination_validators import validate_examinations, record_key, source_response
 from .examination_artifacts import save_artifact, load_artifact, verify_sources
 from .examination_identity import plan_reconciliation, ExaminationIdentityError
 from .radiology_artifacts import artifact_directory, VerifiedExtractionError
@@ -123,9 +123,7 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
         raw = event = errors = None
         status = 'SUCCESS'
         try:
-            prompt = examination_prompt(item)
-            if len(prompt) > 60000: raise ValueError('Focused examination input exceeds context budget')
-            raw = client.generate_json(prompt); summary['granite_called'] = client.runtime != 'mock'
+            raw = source_response(item)
         except Exception as exc: status, errors = 'FAILED_MODEL', [{'type': type(exc).__name__}]
         if status == 'SUCCESS':
             try: parse_json(raw)
@@ -144,7 +142,8 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
             run.completed_at = datetime.now(timezone.utc); run.validation_errors = errors
             run.raw_output = {'patient_id': patient_id, 'dry_run': True, 'extraction_type': 'examinations',
                               'examination': item.context(), 'response': raw, 'normalized_output': event,
-                              'resolved_case_id': case_id}
+                              'resolved_case_id': case_id, 'inference_performed':False,
+                              'result_method':'exact_source_subreport_v1'}
         run_ids.append(run_id)
         if status != 'SUCCESS': failure = status
     summary.update(status=failure or ('SUCCESS' if inputs else 'NO_INPUT'),

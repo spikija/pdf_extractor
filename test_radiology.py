@@ -271,7 +271,7 @@ class PipelineTests(unittest.TestCase):
                                    session_factory=self.factory, debug_root=self.temp.name)
 
     def debug(self):
-        return json.loads(Path(self.temp.name, '123', 'radiology_radiology_v1.json').read_text(encoding='utf-8'))
+        return json.loads(Path(self.temp.name, '123', 'radiology_radiology_v2_source_evidence.json').read_text(encoding='utf-8'))
 
     def commit_saved(self, procedures=None, *, use_client=True):
         self.client.generate_json.reset_mock()
@@ -403,7 +403,7 @@ class PipelineTests(unittest.TestCase):
         original = self.debug()['normalized_output']
         self.client.generate_json.reset_mock()
         with patch('caa_pdf_extractor.preparation.build_patient_bundle', return_value=bundle(procedure())):
-            path = verify_debug_artifact('123', Path(self.temp.name, '123', 'radiology_radiology_v1.json'),
+            path = verify_debug_artifact('123', Path(self.temp.name, '123', 'radiology_radiology_v2_source_evidence.json'),
                                          session_factory=self.factory, debug_root=self.temp.name)
         self.assertEqual(json.loads(path.read_text())['validation_status'], 'VERIFIED')
         result = self.commit_saved()
@@ -487,13 +487,13 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(self.runs[1].raw_output['response'], 'not JSON')
         self.assertIsNotNone(self.runs[1].validation_errors)
 
-    def test_any_validation_failure_blocks_all_patient_inserts(self):
+    def test_independent_bad_phenotype_preserves_valid_siblings(self):
         p2 = procedure(procedure_id='doc1_proc02', date='2016-01-07')
         data = payload(p2); data['findings'][0]['type'] = 'invalid'
         result = self.extract([procedure(), p2], [json.dumps(payload()), json.dumps(data)], dry_run=False)
-        self.assertEqual(result['status'], 'FAILED_VALIDATION')
+        self.assertEqual(result['status'], 'PARTIAL_VALID')
         self.assertEqual(self.rows, [])
-        self.assertEqual(result['radiology_records_validated'], 0)
+        self.assertGreater(result['radiology_records_validated'], 0)
 
     def test_insert_failure_rolls_back_entire_batch_and_preserves_source_audit(self):
         add = self.session.add.side_effect
