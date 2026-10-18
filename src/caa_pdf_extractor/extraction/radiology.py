@@ -48,46 +48,34 @@ def _commit_verified(patient_id, procedures, factory, client, debug_root):
             summary.update(case_id=case_id, resolved_case_id=case_id)
             session.execute(text('SELECT pg_advisory_xact_lock(:case_id)'), {'case_id': case_id})
             normalized, sources = verify_audit_anchor(artifact, procedures, session, case_id)
-            existing_rows = list(session.scalars(
-                select(Radiology).where(Radiology.case_id == case_id, Radiology.deleted.is_(False))))
-            existing = {(r.mri_date, r.type, r.acute_lesion) for r in existing_rows}
-            existing_counts = Counter((r.mri_date, r.type, r.acute_lesion) for r in existing_rows)
+            from .radiology_identity import observations, plan_reconciliation
+            existing_rows = list(session.scalars(select(Radiology).where(Radiology.case_id == case_id, Radiology.deleted.is_(False))))
+            previous_audits = list(session.scalars(select(ExtractionRun).where(ExtractionRun.raw_output['resolved_case_id'].astext == str(case_id), ExtractionRun.status == 'SUCCESS')))
             by_id = {e['procedure']['procedure_id']: e for e in artifact['procedures']}
-            # Plan the entire source set before writes. Database identity alone
-            # cannot prove that two distinct reports describe the same study.
-            intended = {}
-            for p in procedures:
-                if p.modality != 'MRI': continue
-                event = by_id[p.procedure_id]['normalized_output']
-                for finding in event['findings']:
-                    identity = (event['mri_date'], finding['type'], finding['acute_lesion'])
-                    db_identity = (date.fromisoformat(identity[0]) if identity[0] else None, *identity[1:])
-                    if existing_counts[db_identity] > 1:
-                        raise VerifiedExtractionError('DUPLICATE_IDENTITY_AMBIGUOUS')
-                    owner = (p.source_document_id, p.procedure_id)
-                    if identity in intended and intended[identity] != owner:
-                        raise VerifiedExtractionError('DUPLICATE_IDENTITY_AMBIGUOUS')
-                    intended[identity] = owner
+            candidates=observations(procedures,by_id)
+            plan,collisions=plan_reconciliation(candidates,existing_rows,previous_audits)
+            rows_by_canonical={}
             inserted, skipped = 0, 0
             for p in procedures:
                 entry = by_id[p.procedure_id]
                 event = entry['normalized_output']
                 event_inserted, event_skipped = 0, 0
+                observation_links=[]
                 if p.modality == 'MRI':
                     d = date.fromisoformat(event['mri_date']) if event['mri_date'] else None
                     for finding in event['findings']:
-                        key = (d, finding['type'], finding['acute_lesion'])
-                        if key in existing:
-                            skipped += 1
-                            event_skipped += 1
-                            continue
-                        session.add(Radiology(case_id=case_id, pid=patient_id, mri_date=d or null(),
-                                              type=finding['type'],
-                                              acute_lesion=finding['acute_lesion'] if finding['acute_lesion'] is not None else null(),
-                                              deleted=False, saved_on_hdd=False))
-                        existing.add(key)
-                        inserted += 1
-                        event_inserted += 1
+                        candidate=next(c for c in candidates if c['study']['procedure_id']==p.procedure_id and c['finding']==finding)
+                        decision=plan[candidate['observation_fingerprint']]
+                        row=decision['row'] or rows_by_canonical.get(decision['canonical'])
+                        if row is not None:
+                            skipped += 1;event_skipped += 1
+                        else:
+                            row=Radiology(case_id=case_id,pid=patient_id,mri_date=d or null(),type=finding['type'],
+                                acute_lesion=finding['acute_lesion'] if finding['acute_lesion'] is not None else null(),deleted=False,saved_on_hdd=False)
+                            session.add(row);session.flush()
+                            rows_by_canonical[decision['canonical']]=row
+                            inserted += 1;event_inserted += 1
+                        observation_links.append({**candidate,'row_id':row.id,'resolution':decision['reason']})
                 source = sources[p.procedure_id]
                 run = ExtractionRun(source_document_id=p.source_document_id, model_name=entry['model_name'],
                                     model_version=entry['model_version'], prompt_version=PROMPT_VERSION,
@@ -98,6 +86,7 @@ def _commit_verified(patient_id, procedures, factory, client, debug_root):
                                         'verified_artifact': str(path), 'artifact_sha256': artifact['artifact_sha256'],
                                         'source_fingerprint': entry['source_fingerprint'],
                                         'source_run_id': source.id, 'procedure': entry['procedure'],
+                                        'radiology_observations':observation_links,
                                         'response': source.raw_output['response'], 'normalized_output': event,
                                         'resolved_case_id': case_id, 'patient_validation_status': 'SUCCESS',
                                         'insertion_status': 'SUCCESS', 'inserted': event_inserted,
@@ -108,7 +97,7 @@ def _commit_verified(patient_id, procedures, factory, client, debug_root):
         summary.update(status='SUCCESS', validation_status=artifact['validation_status'], verified_artifact_used=True,
                        verified_artifact=str(path), artifact_sha256=artifact['artifact_sha256'],
                        model=artifact['model_name'], model_version=artifact['model_version'],
-                       runtime=artifact['runtime'], new_rows_inserted=inserted, duplicates_skipped=skipped,
+                       runtime=artifact['runtime'], identity_collisions=collisions, new_rows_inserted=inserted, duplicates_skipped=skipped,
                        radiology_records_validated=sum(len(e['findings']) for e in normalized))
     except (VerifiedExtractionError, CaseResolutionError) as exc:
         summary.update(status=exc.status, validation_status=exc.status,
@@ -241,9 +230,15 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--dry-run', action='store_true')
     mode.add_argument('--commit', '--write', dest='commit', action='store_true')
+    parser.add_argument('--legacy-v1',action='store_true',help='Read-only legacy phenotype extraction; v1 commits are not available from this CLI')
     args = parser.parse_args(argv)
+    if args.legacy_v1 and args.commit:parser.error('Legacy v1 is reference-only; use a reviewed radiology_v2 artifact for new commits')
     try:
-        result = extract_patient(args.patient, dry_run=not args.commit)
+        if args.legacy_v1:
+            result = extract_patient(args.patient, dry_run=True)
+        else:
+            from .radiology_v2 import extract_patient as extract_v2
+            result = extract_v2(args.patient, dry_run=not args.commit)
     except Exception as exc:
         print(json.dumps({'patient_id': args.patient, 'status': 'FAILED', 'error_type': type(exc).__name__}))
         return 1

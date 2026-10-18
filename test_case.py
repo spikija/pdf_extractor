@@ -40,7 +40,7 @@ def facts(text):
     ('aktiver Raucher', {'smoking': 'active'}),
     ('Ex-Raucher', {'smoking': 'former'}),
     ('Nikotinabusus früher', {'smoking': 'former'}),
-    ('Nichtraucher', {'smoking': 'never'}),
+    ('Nichtraucher', {}),  # Current non-smoking does not establish lifetime never.
     ('never smoked', {'smoking': 'never'}),
     ('nie geraucht', {'smoking': 'never'}),
     ('30 pack-years', {'pack_years': 30}),

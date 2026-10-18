@@ -16,7 +16,7 @@ from .case_resolver import resolve_case_id, CaseResolutionError
 from .debug_export import DEBUG_ROOT, run_debug_record
 from .medication_inputs import select_medication_inputs
 from .medication_models import MedicationExtraction
-from .medication_validators import validate_medications, deduplicate_medications, medication_key
+from .medication_validators import validate_medications, validate_independent_medications, deduplicate_medications, medication_key
 from .validators import parse_json
 
 
@@ -40,6 +40,7 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
     inputs = select_medication_inputs(bundle)
     client = client or get_client()
     items, runs = [], []
+    rejected_all=[]
     failure = None
     for document in bundle.documents:
         chosen = [item for item in inputs if item.source_document_id == document.source_document_id]
@@ -55,6 +56,7 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
             session.flush()
             run_id = run.id
         raw, errors = None, None
+        rejected,evidence_metadata=[],[]
         status = "SUCCESS"
         try:
             prompt = medication_prompt(patient_id, chosen, MedicationExtraction.model_json_schema())
@@ -70,7 +72,11 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
                 status, errors = "FAILED_PARSE", [{"type": "invalid_json"}]
         if status == "SUCCESS":
             try:
-                items.extend(validate_medications(raw, patient_id, chosen).medications)
+                validated,rejected,evidence_metadata=validate_independent_medications(raw,patient_id,chosen)
+                items.extend(validated.medications);rejected_all.extend(rejected)
+                if rejected:
+                    status='PARTIAL_VALID' if validated.medications else 'FAILED_VALIDATION'
+                    errors=[{'type':r['rejection_reason'],'index':r['index']} for r in rejected]
             except (ValueError, ValidationError) as exc:
                 status = "FAILED_VALIDATION"
                 errors = ([{"type": e['type'], "loc": list(e['loc'])} for e in exc.errors()]
@@ -83,16 +89,18 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
             run.validation_errors = errors
             run.raw_output = {"patient_id": patient_id, "dry_run": dry_run, "response": raw,
                               "section_ids": [item.section_id for item in chosen],
+                              "independent_validation":True,"rejected_records":rejected,"evidence_metadata":evidence_metadata,
                               "table_ids": [{"section_id": item.section_id, "table_index": t['table_index'],
                                              "page_number": t['page_number']} for item in chosen for t in item.tables]}
         runs.append(run_id)
-        if status != "SUCCESS":
+        if status not in ("SUCCESS","PARTIAL_VALID") and not rejected:
             failure = status
     items = deduplicate_medications(items) if failure is None else []
+    if failure is None and rejected_all:failure="PARTIAL_VALID" if items else "FAILED_VALIDATION"
     inserted, skipped = 0, 0
     case_id, matched_fallnr = None, None
     insertion_status = None
-    if failure is None and inputs:
+    if failure in (None,"PARTIAL_VALID") and inputs:
         with factory.begin() as session:
             try:
                 case_id = resolve_case_id(patient_id, session=session)
@@ -105,7 +113,7 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
                "tables_used": sum(len(item.tables) for item in inputs),
                "validated_medications": len(items), "new_rows_inserted": inserted,
                "duplicates_skipped": skipped, "dry_run": dry_run,
-               "status": failure or insertion_status or ("SUCCESS" if inputs else "NO_INPUT"),
+               "status": insertion_status or failure or ("SUCCESS" if inputs else "NO_INPUT"),
                "validation_status": failure or ("SUCCESS" if inputs else "NO_INPUT"),
                "runtime": client.runtime, "model": client.model_name,
                "prompt_version": PROMPT_VERSION}
@@ -142,7 +150,7 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
     result['granite_called'] = client.runtime != 'mock' and result.get('sections_used',0) > 0
     bundle = result.pop('_bundle', None)
     run_ids = result.pop('_run_ids', [])
-    if result['status'] != 'SUCCESS': return result
+    if result['status'] not in ('SUCCESS','PARTIAL_VALID'): return result
     with factory.begin() as session:
         try: case_id = resolve_case_id(patient_id, session=session)
         except CaseResolutionError as exc:
@@ -154,7 +162,7 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
             run.raw_output = {**run.raw_output, 'case_id':case_id, 'matched_fallnr':patient_id}
         path = create('medications',bundle,case_id,runs,client,debug_root)
     result.update(case_id=case_id,resolved_case_id=case_id,matched_fallnr=patient_id,
-                  case_exists=True,verified_artifact=str(path),artifact_validation_status='VERIFIED')
+                  case_exists=True,verified_artifact=str(path),artifact_validation_status='PARTIAL_VALID' if result['status']=='PARTIAL_VALID' else 'VERIFIED')
     return result
 
 def main(argv=None):

@@ -1,6 +1,7 @@
 """Plan event reuse before writes; never distinguish events by result wording."""
 from collections import defaultdict
 from .examination_validators import record_key, whitespace
+from .radiology_artifacts import digest
 
 
 class ExaminationIdentityError(ValueError):
@@ -18,6 +19,13 @@ def row_key(row):
 
 def procedure_identity(context):
     return context['source_document_id'], context['examination_id']
+
+
+def source_identity(event):
+    spans=event.get('source_spans')
+    return digest({'document':event['source_document_id'],'section':event.get('section_id'),
+                   'parent_examination_id':event.get('parent_examination_id',event['examination_id']),
+                   'spans':spans if spans else event['examination_id']})
 
 
 def plan_reconciliation(events, rows, audits):
@@ -38,9 +46,18 @@ def plan_reconciliation(events, rows, audits):
     plan, collisions, unresolved = {}, [], []
     for key, items in intended.items():
         candidates = existing.get(key, [])
-        if len(items) == 1 and len(candidates) <= 1:
+        originals=items
+        unique={}
+        for event,record in items:
+            fingerprint=source_identity(event)
+            if fingerprint in unique and unique[fingerprint][1]!=record:
+                raise ExaminationIdentityError([{'identity':key,'resolution':'Conflicting payload for same source span'}])
+            unique[fingerprint]=(event,record)
+        items=list(unique.values())
+        if len(items) == 1 and not candidates:
             event, record = items[0]
-            plan[event['examination_id']] = (candidates[0] if candidates else None, 'identity_fields')
+            for original,_ in originals:
+                plan[original['examination_id']] = (None, 'NEW_OBSERVATION' if len(originals)==1 else 'SAME_SOURCE_DUPLICATE')
             continue
         detail = {'identity': {'date_examination': key[0], 'type': key[1], 'location': key[2],
                               'neck_vessel_result': key[3]},
@@ -64,6 +81,8 @@ def plan_reconciliation(events, rows, audits):
                 continue
             matched_ids.add(matches[0].id)
             plan[event['examination_id']] = (matches[0], reason)
+            for original,_ in originals:
+                if source_identity(original)==source_identity(event):plan[original['examination_id']]=(matches[0],reason)
         if ambiguous:
             detail['resolution'] = 'UNRESOLVED: schema fields cannot distinguish the examinations safely'
             unresolved.append(detail)

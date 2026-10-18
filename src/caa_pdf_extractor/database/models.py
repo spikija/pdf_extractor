@@ -5,10 +5,14 @@ from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Integer,
-    JSON, Numeric, Text, UniqueConstraint, text
+    JSON, Numeric, SmallInteger, Text, UniqueConstraint, text
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from ..extraction.imaging_schema import (IMAGING_MODALITIES, DATE_SOURCES, RADIOLOGY_PATTERNS,
+    FINDING_TYPES, AMYLOID_RESULTS, FDG_RESULTS, FDG_PATTERNS, TEMPORAL_STATUSES,
+    NEGATIVE_FINDING_TYPES, ANATOMIC_SCOPES)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from ..extraction.clinical_schema import NECK_SUMMARIES,EEG_STATUSES,EEG_PRIMARY,EEG_LATERALITY,EEG_TIMING
 
 
 class Base(DeclarativeBase):
@@ -78,6 +82,79 @@ class Examination(Base):
     neck_vessel_result: Mapped[str | None] = mapped_column(Enum('ica > 50perc right stenosis', 'ica > 50perc left stenosis', 'acm right > 50 perc stenosis', 'acm left >50perc stenosis', 'other cerebral vessel stenosis', 'unknown', name='neck_vessel_result_enum_a1381347', native_enum=True), nullable=True)
     deleted: Mapped[bool | None] = mapped_column(Boolean, nullable=True, server_default=text('FALSE'))
     date_examination: Mapped[date | None] = mapped_column(Date, nullable=True, server_default=text('CURRENT_DATE'))
+    amyloid_pet_result: Mapped[str | None] = mapped_column(Enum(*AMYLOID_RESULTS, name='amyloid_pet_result'), nullable=True)
+    fdg_pet_result: Mapped[str | None] = mapped_column(Enum(*FDG_RESULTS, name='fdg_pet_result'), nullable=True)
+    fdg_pet_pattern: Mapped[str | None] = mapped_column(Enum(*FDG_PATTERNS, name='fdg_pet_pattern'), nullable=True)
+    neck_ultrasound_summary: Mapped[str | None] = mapped_column(Enum(*NECK_SUMMARIES,name='neck_ultrasound_summary'),nullable=True)
+
+
+class EEGExamination(Base):
+    __tablename__='eeg_examination'
+    __table_args__=(UniqueConstraint('case_id','source_document_id','procedure_id',name='uq_eeg_source_procedure'),)
+    id: Mapped[int]=mapped_column(BigInteger,primary_key=True,autoincrement=True)
+    case_id: Mapped[int]=mapped_column(Integer,ForeignKey('case.id'),nullable=False)
+    source_document_id: Mapped[int]=mapped_column(BigInteger,ForeignKey('source_documents.id'),nullable=False)
+    procedure_id: Mapped[str]=mapped_column(Text,nullable=False)
+    eeg_date: Mapped[date | None]=mapped_column(Date,nullable=True)
+    eeg_status: Mapped[str]=mapped_column(Enum(*EEG_STATUSES,name='eeg_status'),nullable=False)
+    eeg_primary_finding: Mapped[str | None]=mapped_column(Enum(*EEG_PRIMARY,name='eeg_primary_finding'),nullable=True)
+    eeg_laterality: Mapped[str | None]=mapped_column(Enum(*EEG_LATERALITY,name='eeg_laterality'),nullable=True)
+    eeg_tfne_timing: Mapped[str | None]=mapped_column(Enum(*EEG_TIMING,name='eeg_tfne_timing'),nullable=True)
+    eeg_clinical_event_captured: Mapped[bool | None]=mapped_column(Boolean,nullable=True)
+    eeg_focal_slowing: Mapped[bool | None]=mapped_column(Boolean,nullable=True)
+    eeg_epileptiform_discharges: Mapped[bool | None]=mapped_column(Boolean,nullable=True)
+    eeg_rhythmic_periodic_pattern: Mapped[bool | None]=mapped_column(Boolean,nullable=True)
+    eeg_electrographic_seizure: Mapped[bool | None]=mapped_column(Boolean,nullable=True)
+    eeg_report_text: Mapped[str]=mapped_column(Text,nullable=False)
+    deleted: Mapped[bool]=mapped_column(Boolean,nullable=False,server_default=text('FALSE'))
+
+
+class RadiologyExam(Base):
+    __tablename__ = 'radiology_exam'
+    __table_args__ = (UniqueConstraint('case_id','source_document_id','procedure_id',name='uq_radiology_exam_source_procedure'),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    anatomic_scope: Mapped[str | None] = mapped_column(Enum(*ANATOMIC_SCOPES,name='radiology_anatomic_scope'), nullable=True)
+    performed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey('case.id'), nullable=False)
+    source_document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('source_documents.id'), nullable=False)
+    procedure_id: Mapped[str] = mapped_column(Text, nullable=False)
+    modality: Mapped[str] = mapped_column(Enum(*IMAGING_MODALITIES, name='imaging_modality'), nullable=False)
+    exam_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    exam_date_source: Mapped[str] = mapped_column(Enum(*DATE_SOURCES, name='date_source'), nullable=False)
+    report_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    overall_pattern: Mapped[str | None] = mapped_column(Enum(*RADIOLOGY_PATTERNS, name='radiology_pattern'), nullable=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('FALSE'))
+
+
+class RadiologyNegativeFinding(Base):
+    __tablename__ = 'radiology_negative_finding'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    radiology_exam_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('radiology_exam.id'), nullable=False, index=True)
+    finding_type: Mapped[str] = mapped_column(Enum(*NEGATIVE_FINDING_TYPES,name='radiology_negative_finding_type'), nullable=False)
+    location: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('FALSE'))
+
+
+class RadiologyFinding(Base):
+    __tablename__ = 'radiology_finding'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    radiology_exam_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('radiology_exam.id'), nullable=False)
+    finding_type: Mapped[str] = mapped_column(Enum(*FINDING_TYPES, name='radiology_finding_type'), nullable=False)
+    acute_lesion: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    temporal_status: Mapped[str | None] = mapped_column(Enum(*TEMPORAL_STATUSES, name='radiology_temporal_status'), nullable=True)
+    interval_new: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    fazekas_grade: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    lobar: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    deep: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    infratentorial: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    cortical: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    subcortical: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    distribution: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location: Mapped[str | None] = mapped_column(Text, nullable=True)
+    laterality: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('FALSE'))
 
 class FamilyHistory(Base):
     __tablename__ = 'family_history'

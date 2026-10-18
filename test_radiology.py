@@ -227,11 +227,12 @@ class PipelineTests(unittest.TestCase):
                 row.id = len(self.runs) + 1
                 self.runs[row.id] = row
             else:
+                if row.id is None: row.id=len(self.rows)+1
                 self.rows.append(row)
         self.session.add.side_effect = add
         self.session.get.side_effect = lambda cls, key: self.runs[key]
         self.session.execute.return_value.all.return_value = [(42,)]
-        self.session.scalars.side_effect = lambda stmt: [r for r in self.rows if r.deleted is False]
+        self.session.scalars.side_effect = lambda stmt: list(self.runs.values()) if stmt.column_descriptions[0]['entity'] is ExtractionRun else [r for r in self.rows if r.deleted is False]
         owner = self
         class Transaction:
             def __enter__(self):

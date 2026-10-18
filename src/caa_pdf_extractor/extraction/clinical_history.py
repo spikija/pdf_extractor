@@ -8,10 +8,10 @@ from pydantic import ValidationError
 from sqlalchemy import select, text, null
 
 from ..llm.backend import get_client
-from ..llm.prompts import PROMPT_VERSION, clinical_history_prompt
+from ..llm.prompts import PROMPT_VERSION, clinical_history_prompt, diagnosis_item_prompt
 from ..preparation import build_patient_bundle
 from .models import ClinicalHistoryExtraction
-from .diagnosis_items import validate_independent
+from .diagnosis_items import validate_independent, validate_recall_responses, diagnosis_items, deterministic_diagnosis
 from .validators import parse_json, validate_output, deduplicate, normalize_disease
 from .debug_export import run_debug_record, save_dry_run_debug
 from .case_resolver import resolve_case_id, CaseResolutionError
@@ -71,6 +71,7 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
         raw = None
         errors = None
         rejected, evidence_metadata = [], []
+        focused_retries = []
         status = "SUCCESS"
         try:
             prompt = clinical_history_prompt(patient_id, chosen, ClinicalHistoryExtraction.model_json_schema())
@@ -87,6 +88,20 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
         if status == "SUCCESS":
             try:
                 validated, rejected, evidence_metadata = validate_independent(raw, patient_id, chosen)
+                covered = {m.get('item_id') for m in evidence_metadata}
+                for item in diagnosis_items(chosen):
+                    if item.item_id in covered or deterministic_diagnosis(item):
+                        continue
+                    attempt = {'item_id':item.item_id, 'response':None}
+                    from .radiology_artifacts import digest
+                    focused_prompt = diagnosis_item_prompt(patient_id,item)
+                    attempt['prompt_sha256'] = digest(focused_prompt)
+                    try:
+                        attempt['response'] = client.generate_json(focused_prompt)
+                    except Exception as exc:
+                        attempt['error_type'] = type(exc).__name__
+                    focused_retries.append(attempt)
+                validated, rejected, evidence_metadata = validate_recall_responses(raw, focused_retries, patient_id, chosen)
                 items.extend(validated.clinical_history)
                 rejected_all.extend(rejected)
                 if rejected:
@@ -94,6 +109,8 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
                     errors = [{'type': r['rejection_reason'], 'index':r['index']} for r in rejected]
             except (ValueError, ValidationError) as exc:
                 status = "FAILED_VALIDATION"
+                failure = status
+                rejected, evidence_metadata = [], []
                 errors = ([{"type": e["type"], "loc": list(e["loc"])} for e in exc.errors()]
                           if isinstance(exc, ValidationError) else [{"type": str(exc)}])
         with factory.begin() as session:
@@ -103,6 +120,7 @@ def _extract_dry_patient(patient_id, *, dry_run=True, client=None, session_facto
             run.completed_at = datetime.now(timezone.utc)
             run.raw_output = {"patient_id": patient_id, "dry_run": dry_run,
                               "response": raw, "section_ids": [s.section_id for s in chosen],
+                              "focused_retries": focused_retries,
                               "rejected_records": rejected, "evidence_metadata": evidence_metadata,
                               "independent_validation": True}
             run.validation_errors = errors

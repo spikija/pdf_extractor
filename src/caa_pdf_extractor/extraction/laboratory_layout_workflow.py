@@ -16,7 +16,7 @@ from .laboratory_inputs import source_manifest
 from .laboratory_models import FIELDS
 from .radiology_artifacts import artifact_directory, digest, VerifiedExtractionError
 
-POLICY_VERSION = 'crp_hba1c_null_date_v1'
+POLICY_VERSION = 'six_targets_original_units_null_date_v2'
 
 
 def observation_fingerprint(patient_id, candidate):
@@ -33,10 +33,13 @@ def observations(patient_id, case_id, candidates):
             continue
         if candidate['validation_status'] != 'VALID' or candidate['issues']:
             raise VerifiedExtractionError('LAYOUT_VALIDATION_FAILED')
-        if (candidate['audit_only'] or candidate['biomarker'] not in ('crp', 'hba1c')):
-            continue
+        if candidate['biomarker'] not in FIELDS:
+            raise VerifiedExtractionError('UNSUPPORTED_BIOMARKER')
         unit = candidate['unit_text'].casefold()
-        if unit != ('mg/dl' if candidate['biomarker'] == 'crp' else '%'):
+        allowed_units = ({'mg/dl'} if candidate['biomarker'] == 'crp' else {'%'} if candidate['biomarker'] == 'hba1c'
+                         else {'', 'ratio', 'dimensionless'} if candidate['biomarker'] == 'csf_beta4240_ratio'
+                         else {'pg/ml', 'ng/ml', 'ng/l'})
+        if unit not in allowed_units:
             raise VerifiedExtractionError('UNIT_MISMATCH')
         result.append({'patient_id': patient_id, 'resolved_case_id': case_id, **candidate,
             'observation_fingerprint': observation_fingerprint(patient_id, candidate),
@@ -125,7 +128,8 @@ def reconcile(observations, rows, runs):
     links = defaultdict(set)
     for run in runs:
         raw = run.raw_output or {}
-        if run.status == 'SUCCESS' and raw.get('operation') == 'COMMIT_LAYOUT' and raw.get('policy_version') == POLICY_VERSION:
+        if (run.status == 'SUCCESS' and raw.get('operation') == 'COMMIT_LAYOUT'
+                and raw.get('policy_version') in (POLICY_VERSION, 'crp_hba1c_null_date_v1')):
             for link in raw.get('observation_links', []):
                 links[link['observation_fingerprint']].add(link['laboratory_id'])
     multiplicity = Counter(identity(o) for o in observations)

@@ -31,22 +31,27 @@ def specification(domain):
 def fingerprint(domain, bundle):
     select_inputs, _, _, _, schema, version, prompt, _ = specification(domain)
     inputs = select_inputs(bundle)
-    paths = ('validators.py', 'models.py', 'clinical_history.py', 'diagnosis_items.py', 'date_attribution.py') if domain == 'clinical_history' else ('medication_validators.py', 'medication_models.py', 'medication_inputs.py', 'medications.py')
+    paths = ('validators.py', 'models.py', 'clinical_history.py', 'diagnosis_items.py', 'date_attribution.py', 'history_target_policy.py') if domain == 'clinical_history' else ('medication_validators.py', 'medication_models.py', 'medication_inputs.py', 'medications.py')
+    from .history_target_policy import VERSION as target_version
     return digest({'version': VERSION, 'domain': domain, 'bundle': bundle.to_dict(),
         'prompts': [prompt(bundle.patient_id, [i for i in inputs if i.source_document_id == d.source_document_id], schema.model_json_schema()) for d in bundle.documents],
         'implementation': {p: Path(__file__).with_name(p).read_text(encoding='utf-8') for p in paths},
-        'artifact_implementation': Path(__file__).read_text(encoding='utf-8')})
+        'prompt_implementation': (Path(__file__).parents[1] / 'llm' / ('prompts.py' if domain == 'clinical_history' else 'medication_prompts.py')).read_text(encoding='utf-8'),
+        'artifact_implementation': Path(__file__).read_text(encoding='utf-8'),
+        **({'target_policy_version':target_version} if domain=='clinical_history' else {})})
 
 
 def create(domain, bundle, case_id, runs, client, root):
     version = specification(domain)[5]
-    allowed = ('SUCCESS','PARTIAL_VALID','FAILED_VALIDATION') if domain=='clinical_history' else ('SUCCESS',)
+    allowed = ('SUCCESS','PARTIAL_VALID','FAILED_VALIDATION')
     if not runs or any(run.status not in allowed or (run.status=='FAILED_VALIDATION' and not run.raw_output.get('independent_validation')) for run in runs):
         raise VerifiedExtractionError("NO_VERIFIED_EXTRACTION")
     normalized = [item for run in runs for item in run.raw_output['normalized_output']]
     if domain == 'clinical_history':
         from .date_attribution import require_date_ownership
+        from .history_target_policy import require_target_eligibility
         require_date_ownership(normalized, [m for run in runs for m in run.raw_output.get('evidence_metadata',[])])
+        require_target_eligibility(normalized, [m for run in runs for m in run.raw_output.get('evidence_metadata',[])])
     rejected = [item for run in runs for item in run.raw_output.get('rejected_records',[])]
     status = 'PARTIAL_VALID' if normalized and rejected else 'VERIFIED' if normalized else 'VERIFIED_EMPTY'
     if rejected and not normalized: raise VerifiedExtractionError('NO_VERIFIED_EXTRACTION')
@@ -54,6 +59,9 @@ def create(domain, bundle, case_id, runs, client, root):
     for run in runs:
         run.raw_output = {**run.raw_output, 'source_fingerprint': original_fingerprint,
                           'extraction_type': domain, 'policy_version': VERSION}
+        if domain=='clinical_history':
+            from .history_target_policy import VERSION as target_version
+            run.raw_output={**run.raw_output,'target_policy_version':target_version}
     artifact = {'artifact_version': 1, 'extraction_type': domain, 'patient_id': bundle.patient_id,
         'resolved_case_id': case_id, 'validation_status': status,
         'created_at': datetime.now(timezone.utc).isoformat(), 'policy_version': VERSION,
@@ -62,6 +70,9 @@ def create(domain, bundle, case_id, runs, client, root):
         'source_run_ids': [r.id for r in runs], 'normalized_output': normalized,
         'accepted_records':normalized, 'rejected_records':rejected,
         'evidence_metadata':[item for run in runs for item in run.raw_output.get('evidence_metadata',[])]}
+    if domain=='clinical_history':
+        artifact['target_policy_version']=target_version
+        artifact['audit_only_records']=[m for m in artifact['evidence_metadata'] if m.get('audit_only') is True]
     artifact['artifact_sha256'] = digest(artifact)
     folder = artifact_directory(bundle.patient_id, root); folder.mkdir(parents=True, exist_ok=True)
     path = folder / f'{domain}_{datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")}_{uuid4().hex}.json'
@@ -80,6 +91,10 @@ def load(domain, bundle, case_id, client, session, root):
         if digest(artifact) != checksum: raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         artifact['artifact_sha256'] = checksum
         selector, validator, dedup, key, _, version, _, _ = specification(domain)
+        if domain=='clinical_history':
+            from .history_target_policy import VERSION as target_version
+            if artifact.get('target_policy_version')!=target_version:
+                raise VerifiedExtractionError('VERIFIED_EXTRACTION_STALE')
         load_environment()
         backend = os.getenv('LLM_BACKEND', 'granite').strip().lower()
         model = client.model_name if client else ('mock-empty' if backend == 'mock' else os.getenv('GRANITE_MODEL', 'granite4.2:latest'))
@@ -93,7 +108,9 @@ def load(domain, bundle, case_id, client, session, root):
             raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         if domain == 'clinical_history':
             from .date_attribution import require_date_ownership
+            from .history_target_policy import require_target_eligibility
             require_date_ownership(artifact['accepted_records'],artifact.get('evidence_metadata',[]))
+            require_target_eligibility(artifact['accepted_records'],artifact.get('evidence_metadata',[]))
         inputs = selector(bundle)
         expected_docs = {i.source_document_id for i in inputs}
         validated, saved, seen_docs = [], [], set()
@@ -101,12 +118,14 @@ def load(domain, bundle, case_id, client, session, root):
         if len(set(artifact['source_run_ids'])) != len(artifact['source_run_ids']): raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         for run_id in artifact['source_run_ids']:
             run = session.get(ExtractionRun, run_id)
-            if (run is None or run.status not in (('SUCCESS','PARTIAL_VALID','FAILED_VALIDATION') if domain=='clinical_history' else ('SUCCESS',)) or run.prompt_version != version
+            if (run is None or run.status not in ('SUCCESS','PARTIAL_VALID','FAILED_VALIDATION') or run.prompt_version != version
                     or run.model_name != artifact['model_name'] or run.model_version != artifact['model_version']
                     or run.source_document_id in seen_docs or run.source_document_id not in expected_docs):
                 raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
             seen_docs.add(run.source_document_id)
             raw = run.raw_output
+            if domain=='clinical_history' and raw.get('target_policy_version')!=target_version:
+                raise VerifiedExtractionError('VERIFIED_EXTRACTION_STALE')
             chosen = [i for i in inputs if i.source_document_id == run.source_document_id]
             if (raw['patient_id'] != bundle.patient_id or raw['dry_run'] is not True
                     or raw['patient_validation_status'] not in ('SUCCESS','PARTIAL_VALID')
@@ -115,10 +134,17 @@ def load(domain, bundle, case_id, client, session, root):
                     or raw.get('extraction_type') != domain or raw.get('policy_version') != VERSION
                     or raw.get('source_fingerprint') != artifact['source_fingerprint']):
                 raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
-            if domain=='clinical_history':
-                from .diagnosis_items import validate_independent
-                result, rejected, metadata = validate_independent(raw['response'], bundle.patient_id, chosen)
-                expected = 'PARTIAL_VALID' if result.clinical_history and rejected else 'FAILED_VALIDATION' if rejected else 'SUCCESS'
+            if domain in ('clinical_history','medications'):
+                if domain=='clinical_history':
+                    from .diagnosis_items import validate_independent
+                else:
+                    from .medication_validators import validate_independent_medications as validate_independent
+                if domain == 'clinical_history':
+                    from .diagnosis_items import validate_recall_responses
+                    result, rejected, metadata = validate_recall_responses(raw['response'], raw.get('focused_retries',[]), bundle.patient_id, chosen)
+                else:
+                    result, rejected, metadata = validate_independent(raw['response'], bundle.patient_id, chosen)
+                expected = 'PARTIAL_VALID' if getattr(result,domain) and rejected else 'FAILED_VALIDATION' if rejected else 'SUCCESS'
                 if (run.status != expected or rejected != raw.get('rejected_records',[]) or metadata != raw.get('evidence_metadata',[])):
                     raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
                 rejections.extend(rejected); evidence_metadata.extend(metadata)
@@ -135,6 +161,8 @@ def load(domain, bundle, case_id, client, session, root):
         order = {doc.source_document_id:n for n,doc in enumerate(bundle.documents)}
         values.sort(key=lambda i: order[i['source_document_id']])
         expected_status = 'PARTIAL_VALID' if saved and rejections else 'VERIFIED' if saved else 'VERIFIED_EMPTY'
+        if domain=='clinical_history' and artifact.get('audit_only_records')!=[m for m in evidence_metadata if m.get('audit_only') is True]:
+            raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         if (values != saved or saved != artifact['normalized_output'] or saved != artifact['accepted_records']
                 or rejections != artifact['rejected_records'] or evidence_metadata != artifact['evidence_metadata']
                 or artifact['validation_status'] != expected_status):
@@ -156,6 +184,11 @@ def commit(domain, patient_id, bundle, *, client=None, session_factory=None, deb
             summary.update(case_id=case_id, resolved_case_id=case_id, matched_fallnr=patient_id, case_exists=True)
             session.execute(text('SELECT pg_advisory_xact_lock(:case_id)'), {'case_id':case_id})
             artifact,path,items=load(domain,bundle,case_id,client,session,debug_root)
+            if domain=='clinical_history':
+                from .history_target_policy import VERSION as target_version, require_target_eligibility
+                if artifact.get('target_policy_version')!=target_version:
+                    raise VerifiedExtractionError('VERIFIED_EXTRACTION_STALE')
+                require_target_eligibility([item.model_dump(mode='json') for item in items],artifact.get('evidence_metadata',[]))
             _,_,_,key,_,version,_,model=specification(domain)
             existing = {key(r) for r in session.scalars(select(model).where(model.case_id==case_id))}
             inserted = skipped = 0

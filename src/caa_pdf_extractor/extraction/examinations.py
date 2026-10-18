@@ -3,6 +3,7 @@ import argparse
 from datetime import date, datetime, timezone
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from pydantic import ValidationError
 from sqlalchemy import select, text, null
 from ..database import SessionLocal
@@ -12,7 +13,7 @@ from ..llm.examination_prompts import PROMPT_VERSION, examination_prompt
 from ..preparation import build_patient_bundle
 from .case_resolver import resolve_case_id, CaseResolutionError
 from .debug_export import DEBUG_ROOT, run_debug_record
-from .examination_inputs import select_examination_inputs
+from .examination_inputs import select_examination_inputs,select_pet_inputs
 from .examination_validators import validate_examinations, record_key, source_response
 from .examination_artifacts import save_artifact, load_artifact, verify_sources
 from .examination_identity import plan_reconciliation, ExaminationIdentityError
@@ -23,15 +24,16 @@ from .validators import parse_json
 def save_debug(patient_id, summary, records, normalized, root):
     output = {**summary, 'runs': records, 'normalized_output': normalized,
               'granite_response': [r['granite_response'] for r in records]}
-    path = Path(root or DEBUG_ROOT) / patient_id / f'examinations_{PROMPT_VERSION}.json'
+    prefix='pet_examinations' if summary.get('scope')=='PET_ONLY' else 'examinations'
+    path = Path(root or DEBUG_ROOT) / patient_id / f'{prefix}_{PROMPT_VERSION}.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
-def commit_verified(patient_id, inputs, factory, client, root, summary):
+def commit_verified(patient_id, inputs, factory, client, root, summary, *, pet_only=False):
     records, normalized = [], []
     try:
-        artifact, path = load_artifact(patient_id, inputs, client, root)
+        artifact, path = load_artifact(patient_id, inputs, client, root, scope='PET_ONLY' if pet_only else 'ALL')
         with factory.begin() as session:
             case_id = resolve_case_id(patient_id, session=session)
             summary.update(case_id=case_id, resolved_case_id=case_id)
@@ -44,20 +46,30 @@ def commit_verified(patient_id, inputs, factory, client, root, summary):
                 ExtractionRun.raw_output['resolved_case_id'].astext == str(case_id))))
             plan, collisions = plan_reconciliation(normalized, existing_rows, previous_commits)
             inserted = skipped = 0
+            inserted_sources = {}
             for event in normalized:
                 item_inserted = item_skipped = 0
                 matched_ids, inserted_ids = [], []
                 for record in event['records']:
                     existing_row, reuse_reason = plan[event['examination_id']]
+                    from .examination_identity import source_identity
+                    source_key=source_identity(event)
+                    existing_row=existing_row or inserted_sources.get(source_key)
                     if existing_row is not None:
+                        if record.get('neck_ultrasound_summary') is not None and existing_row.neck_ultrasound_summary!=record['neck_ultrasound_summary']:
+                            raise ExaminationIdentityError([{'examination_id':event['examination_id'],'resolution':'Existing neck summary differs; explicit reviewed update required'}])
                         skipped += 1; item_skipped += 1
                         matched_ids.append(existing_row.id)
                         continue
                     row = Examination(case_id=case_id, type=record['type'] or null(),
                         location=record['location'] or null(), result=record['result'],
                         neck_vessel_result=record['neck_vessel_result'] or null(), deleted=False,
+                        amyloid_pet_result=record.get('amyloid_pet_result'),fdg_pet_result=record.get('fdg_pet_result'),
+                        fdg_pet_pattern=record.get('fdg_pet_pattern'),
+                        neck_ultrasound_summary=record.get('neck_ultrasound_summary'),
                         date_examination=date.fromisoformat(record['date_examination']) if record['date_examination'] else null())
                     session.add(row); session.flush()
+                    inserted_sources[source_key]=row
                     inserted_ids.append(row.id); inserted += 1; item_inserted += 1
                 source = sources[event['examination_id']]
                 entry = next(e for e in artifact['inputs'] if e['context']['examination_id'] == event['examination_id'])
@@ -94,16 +106,21 @@ def commit_verified(patient_id, inputs, factory, client, root, summary):
     return summary
 
 
-def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=None, debug_root=None):
+def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=None, debug_root=None,pet_only=False):
     artifact_directory(patient_id, debug_root)  # Validate path before any operation.
     factory = session_factory or SessionLocal
-    inputs = select_examination_inputs(build_patient_bundle(patient_id, factory))
+    # Results and PET classifications are source-derived. Default operation
+    # needs neither a model runtime nor network/model metadata requests.
+    client = client or SimpleNamespace(model_name='deterministic-examinations',
+        model_version=PROMPT_VERSION,runtime='local-deterministic')
+    bundle=build_patient_bundle(patient_id, factory)
+    inputs = select_pet_inputs(bundle) if pet_only else select_examination_inputs(bundle)
     summary = {'patient_id': patient_id, 'case_id': None, 'resolved_case_id': None,
                'selected_sections': sorted({i.section_id for i in inputs}), 'selected_examinations': len(inputs),
                'extracted_records': 0, 'new_rows_inserted': 0, 'duplicates_skipped': 0,
                'dry_run': dry_run, 'prompt_version': PROMPT_VERSION,
-               'verified_artifact_used': False, 'granite_called': False}
-    if not dry_run: return commit_verified(patient_id, inputs, factory, client, debug_root, summary)
+               'verified_artifact_used': False, 'granite_called': False,'scope':'PET_ONLY' if pet_only else 'ALL'}
+    if not dry_run: return commit_verified(patient_id, inputs, factory, client, debug_root, summary,pet_only=pet_only)
     try:
         with factory.begin() as s: case_id = resolve_case_id(patient_id, session=s)
         summary.update(case_id=case_id, resolved_case_id=case_id)
@@ -156,10 +173,14 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
             run.raw_output = {**run.raw_output, 'patient_validation_status': summary['validation_status']}
             records.append(run_debug_record(run))
     if summary['status'] == 'SUCCESS':
-        path = save_artifact(patient_id, case_id, inputs, records, client, debug_root)
+        path = save_artifact(patient_id, case_id, inputs, records, client, debug_root,scope='PET_ONLY' if pet_only else 'ALL')
         summary.update(verified_artifact=str(path), artifact_validation_status='VERIFIED')
     save_debug(patient_id, summary, records, normalized, debug_root)
     return summary
+
+
+def extract_pet_patient(patient_id,**kwargs):
+    return extract_patient(patient_id,pet_only=True,**kwargs)
 
 
 def main(argv=None):
@@ -168,8 +189,9 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--dry-run', action='store_true')
     mode.add_argument('--commit', action='store_true')
+    parser.add_argument('--pet-only',action='store_true',help='Select only PET studies; do not rerun ultrasound or other examinations')
     args = parser.parse_args(argv)
-    try: result = extract_patient(args.patient, dry_run=not args.commit)
+    try: result = extract_patient(args.patient, dry_run=not args.commit,pet_only=args.pet_only)
     except Exception as exc:
         print(json.dumps({'patient_id': args.patient, 'status': 'FAILED', 'error_type': type(exc).__name__})); return 1
     print(json.dumps(result, ensure_ascii=True))

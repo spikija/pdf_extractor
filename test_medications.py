@@ -161,7 +161,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result['case_id'], 42)
         self.assertEqual(result['validated_medications'], 1)
         self.assertEqual(self.rows, [])
-        exported = json.loads(Path(self.temp.name, '123', 'medications_medications_v1.json').read_text())
+        exported = json.loads(Path(self.temp.name, '123', 'medications_medications_v2_source_rows.json').read_text())
         self.assertEqual(exported['runs'][0]['granite_response'], payload())
         self.assertEqual(exported['normalized_output'][0]['medication'], 'Ramipril 5 mg 1-0-0')
 

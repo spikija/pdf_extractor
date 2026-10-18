@@ -458,7 +458,10 @@ interpretation.
 
 ## MRI imaging phenotype extraction
 
-The existing `radiology` table represents MRI imaging phenotypes. CT and RTG
+The legacy `radiology` table represents MRI imaging phenotypes. New work uses
+the additive exam/finding workflow described in [radiology v2](docs/radiology_v2.md),
+with PET classifications in examinations. Legacy commands below remain reference
+facilities; their artifacts cannot authorize a v2 commit. CT and RTG
 procedures remain in preparation and get `SKIPPED_NON_MRI` audit records; they
 never write dates or findings to this table. Each MRI diagnostic procedure is
 one local model task. The parser and diagnostic splitter remain unchanged.

@@ -1,0 +1,21 @@
+{
+  "mri_2561410517": {
+    "patient_id": "2561410517",
+    "header": "Kernspintomographie: Schädel craniell nativ (28.08.2017)",
+    "report": "Bihemisphärisch zahlreiche max. stecknadelkopfgroße\nHämosiderinauflagerungen.",
+    "finding_type": "CMB",
+    "temporal_status": "CHRONIC",
+    "acute_lesion": false,
+    "location": "bihemispheric"
+  },
+  "ct_2586499918": {
+    "patient_id": "2586499918",
+    "header": "Computertomografie: Schädel nativ (20.02.2018)",
+    "report": "Voruntersuchung vom 01.11.17.\nBeurteilung:\n- Frische Subarachnoidalblutungen im rechten Frontallappen lateral.\n- Alte Infarzierungen rechts frontal und links parietal.\nMultiple alte mikroangiopathische Läsionen der weißen Substanz.\nArteriosklerotische Plaques cerebraler Arterien.\n- Chronische Sinusitis maxillaris rechts.",
+    "findings": [
+      {"finding_type": "SAH", "temporal_status": "ACUTE", "acute_lesion": true, "location": "right frontal lateral", "compartment": "subarachnoid", "evidence": "Frische Subarachnoidalblutungen im rechten Frontallappen lateral."},
+      {"finding_type": "ISCHEMIC_LESION", "temporal_status": "CHRONIC", "acute_lesion": false, "location": "right frontal and left parietal", "evidence": "Alte Infarzierungen rechts frontal und links parietal."},
+      {"finding_type": "MICROANGIOPATHY", "temporal_status": "CHRONIC", "acute_lesion": false, "evidence": "Multiple alte mikroangiopathische Läsionen der weißen Substanz."}
+    ]
+  }
+}

@@ -9,6 +9,7 @@ import unicodedata
 
 from .models import ClinicalHistoryExtraction
 from .validators import parse_json, validate_output, supported_disease_text
+from .history_target_policy import classify_target
 
 POLICY_VERSION = 'source_diagnosis_items_v2_date_ownership'
 NUMBER = re.compile(r'(?m)^[ \t]*\d{1,2}[.)][ \t]+(?=\S)')
@@ -111,8 +112,11 @@ def validate_independent(raw, patient_id, sections):
                 if not isinstance(disease, str) or not normalized_label(disease): raise ValueError('Invalid disease label')
                 if normalized_label(disease) not in normalized_label(item.source_text):
                     raise ValueError('Disease not supported by exact source item')
+                target=classify_target(disease)
+                disease=target['disease']
                 from .date_attribution import attribute
                 day, ownership = attribute(item.source_text, disease, offset=item.clause_start, item_id=item.item_id)
+                if not target['persistence_eligible']:day=None
                 partial = ownership['partial_date_text']
                 value = dict(disease=disease, date_disease=day, disease_category=None,
                     source_document_id=item.source_document_id, page_number=item.page_number,
@@ -132,6 +136,8 @@ def validate_independent(raw, patient_id, sections):
                 # Validate the original exact quotation/provenance before deriving any date.
                 value['date_disease'] = None
                 result = validate_output(json.dumps({'patient_id':patient_id,'clinical_history':[value]}),patient_id,sections)
+                target=classify_target(value['disease'])
+                value['disease']=target['disease']
                 section = by_section[value['section_id']]
                 start = section.text.find(value['source_text'])
                 if start < 0:
@@ -144,6 +150,7 @@ def validate_independent(raw, patient_id, sections):
                     start = matches[0].start()
                     value['source_text'] = matches[0].group()
                 day, ownership = attribute(value['source_text'],value['disease'],offset=start)
+                if not target['persistence_eligible']:day=None
                 value['date_disease'] = day
                 result = validate_output(json.dumps({'patient_id':patient_id,'clinical_history':[value]}),patient_id,sections)
                 metadata.append({'record':result.clinical_history[0].model_dump(mode='json'),
@@ -151,7 +158,64 @@ def validate_independent(raw, patient_id, sections):
                     'model_date_disease':record.get('date_disease'), 'normalized_date_disease':day,
                     'evidence_source_text':value['source_text'],'evidence_start':start,
                     'evidence_end':start+len(value['source_text']),'policy_version':POLICY_VERSION})
-            accepted.extend(result.clinical_history)
+            metadata[-1].update(target)
+            metadata[-1]['audit_only']=not target['persistence_eligible']
+            if target['persistence_eligible']:
+                accepted.extend(result.clinical_history)
         except (ValueError, TypeError, KeyError) as exc:
             rejected.append({'index':index, 'record':record, 'rejection_reason':str(exc)})
     return ClinicalHistoryExtraction(patient_id=patient_id, clinical_history=accepted), rejected, metadata
+
+
+def deterministic_diagnosis(item):
+    """Self-contained fracture headings only; never derive disease from surgery."""
+    text=item.source_text.strip()
+    if not classify_target(text)['persistence_eligible']:
+        return None
+    if len(text)>180 or '\n' in text or re.search(r'\b(?:DD|V\.?\s*a\.|kein\w*|Verdacht|Operation|OP|Therapie|mg|Referenz)\b|[?;]',text,re.I):
+        return None
+    if re.match(r'^(?:Fract\.\s+(?:costae|scapulae)\b|(?:Rippen|Skapula|Schulterblatt)fraktur\w*\b)',text,re.I):
+        return {'item_id':item.item_id,'disease':text,'date_disease':None}
+    return None
+
+
+def validate_recall_responses(raw, retries, patient_id, sections):
+    """Replay original and item-focused audits without inference or label repair."""
+    parsed = parse_json(raw)
+    result, rejected, metadata = validate_independent(raw, patient_id, sections)
+    items = {i.item_id:i for i in diagnosis_items(sections)}
+    covered = {m.get('item_id') for m in metadata}
+    seen = set()
+    records = list(parsed['clinical_history'])
+    for retry in retries:
+        identity = retry['item_id']
+        if identity not in items or identity in covered or identity in seen:
+            raise ValueError('Invalid focused diagnosis retry identity')
+        if 'prompt_sha256' in retry:
+            from ..llm.prompts import diagnosis_item_prompt
+            from .radiology_artifacts import digest
+            if retry['prompt_sha256'] != digest(diagnosis_item_prompt(patient_id,items[identity])):
+                raise ValueError('Focused diagnosis retry prompt mismatch')
+        seen.add(identity)
+        if retry.get('response') is None:
+            continue  # Retained failed attempt, never a manufactured diagnosis.
+        response = parse_json(retry['response'])
+        if (not isinstance(response,dict) or response.get('patient_id') != patient_id
+                or set(response) != {'patient_id','clinical_history'}
+                or not isinstance(response['clinical_history'],list)
+                or any(not isinstance(r,dict) or r.get('item_id') != identity for r in response['clinical_history'])):
+            raise ValueError('Focused diagnosis retry provenance mismatch')
+        records.extend(response['clinical_history'])
+    combined=json.dumps({'patient_id':patient_id,'clinical_history':records})
+    result,rejected,metadata=validate_independent(combined,patient_id,sections)
+    covered={m.get('item_id') for m in metadata}
+    fallback_ids=set()
+    for identity,item in items.items():
+        fallback=deterministic_diagnosis(item)
+        if identity not in covered and fallback:
+            records.append(fallback);fallback_ids.add(identity)
+    result,rejected,metadata=validate_independent(json.dumps({'patient_id':patient_id,'clinical_history':records}),patient_id,sections)
+    for meta in metadata:
+        if meta.get('item_id') in fallback_ids:
+            meta['normalization_method']='deterministic_source_item'
+    return result,rejected,metadata

@@ -12,7 +12,7 @@ from ..llm.family_history_prompts import PROMPT_VERSION, family_history_prompt
 from .case_resolver import resolve_case_id, CaseResolutionError
 from .debug_export import DEBUG_ROOT, run_debug_record
 from .family_history_inputs import select_family_history_inputs, source_manifest
-from .family_history_models import validate_family_history, record_key
+from .family_history_models import validate_family_history, validate_independent_family_history, record_key
 from .family_history_artifacts import save_artifact, load_artifact, verify_sources, fingerprint
 from .radiology_artifacts import artifact_directory, VerifiedExtractionError
 from .validators import parse_json
@@ -73,7 +73,7 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
                 session.add(run)
                 session.flush()
                 records.append(run_debug_record(run))
-            summary.update(status='SUCCESS', validation_status='VERIFIED', verified_artifact_used=True,
+            summary.update(status='SUCCESS', validation_status=artifact['validation_status'], verified_artifact_used=True,
                 verified_artifact=str(path), new_rows_inserted=inserted, duplicates_skipped=skipped,
                 extracted_records=len(normalized['family_history']), model=artifact['model_name'])
         else:
@@ -102,7 +102,11 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
                     status, error = 'FAILED_PARSE', 'invalid_json'
             if status == 'SUCCESS':
                 try:
-                    normalized = validate_family_history(raw, patient_id, inputs)
+                    normalized = validate_independent_family_history(raw, patient_id, inputs)
+                    if normalized['rejected_records']:
+                        status='PARTIAL_VALID' if normalized['family_history'] else 'FAILED_VALIDATION'
+                        reasons=[r['rejection_reason'] for r in normalized['rejected_records']]
+                        error=('UNSUPPORTED_RELATIVE_TERM' if reasons==['Relative is not an explicitly supported family relationship'] else reasons[0] if len(reasons)==1 else 'INDEPENDENT_RECORD_REJECTIONS')
                 except ValueError as exc:
                     # Internal validators contain fixed messages, never source quotations.
                     error = ('UNSUPPORTED_RELATIVE_TERM' if str(exc) == 'Relative is not an explicitly supported family relationship'
@@ -121,9 +125,9 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
                 records.append(run_debug_record(run))
             summary.update(status=status, validation_status=status, model=client.model_name,
                            extracted_records=len(normalized['family_history']) if normalized else 0)
-            if status == 'SUCCESS':
+            if status in ('SUCCESS','PARTIAL_VALID'):
                 path = save_artifact(patient_id, case_id, inputs, manifest, run, client, debug_root)
-                summary.update(verified_artifact=str(path), artifact_validation_status='VERIFIED')
+                summary.update(verified_artifact=str(path), artifact_validation_status='PARTIAL_VALID' if status=='PARTIAL_VALID' else 'VERIFIED')
     except (CaseResolutionError, VerifiedExtractionError) as exc:
         summary.update(status=exc.status, validation_status=exc.status)
     except Exception as exc:

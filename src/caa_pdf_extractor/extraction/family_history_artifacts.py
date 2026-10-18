@@ -2,27 +2,32 @@
 from datetime import datetime, timezone
 import json
 import os
+from pathlib import Path
 from uuid import uuid4
 from ..config import load_environment
 from ..database.models import ExtractionRun
 from ..llm.family_history_prompts import PROMPT_VERSION, family_history_prompt
-from .family_history_models import RULE_VERSION, validate_family_history
+from .family_history_models import RULE_VERSION, validate_independent_family_history
 from .radiology_artifacts import artifact_directory, digest, VerifiedExtractionError
 
 
 def fingerprint(patient_id, inputs, manifest):
     return digest({'source_manifest': manifest, 'prompt': family_history_prompt(patient_id, inputs),
-                   'rule_version': RULE_VERSION})
+                   'rule_version': RULE_VERSION,
+                   'validation_implementation':Path(__file__).with_name('family_history_models.py').read_text(encoding='utf-8'),
+                   'selection_implementation':Path(__file__).with_name('family_history_inputs.py').read_text(encoding='utf-8')})
 
 
 def save_artifact(patient_id, case_id, inputs, manifest, run, client, root):
     created = datetime.now(timezone.utc)
     data = {'artifact_version': 1, 'extraction_type': 'family_history', 'patient_id': patient_id,
-            'resolved_case_id': case_id, 'validation_status': 'VERIFIED', 'created_at': created.isoformat(),
+            'resolved_case_id': case_id, 'validation_status': 'PARTIAL_VALID' if run.status=='PARTIAL_VALID' else 'VERIFIED', 'created_at': created.isoformat(),
             'prompt_version': PROMPT_VERSION, 'rule_version': RULE_VERSION,
             'model_name': client.model_name, 'model_version': client.model_version, 'runtime': client.runtime,
             'source_fingerprint': fingerprint(patient_id, inputs, manifest),
-            'source_run_id': run.id, 'normalized_output': run.raw_output['normalized_output']}
+            'source_run_id': run.id, 'normalized_output': run.raw_output['normalized_output'],
+            'accepted_records':run.raw_output['normalized_output']['family_history'],
+            'rejected_records':run.raw_output['normalized_output']['rejected_records']}
     data['artifact_sha256'] = digest(data)
     folder = artifact_directory(patient_id, root)
     folder.mkdir(parents=True, exist_ok=True)
@@ -44,7 +49,7 @@ def load_artifact(patient_id, inputs, manifest, client, root):
             raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         data['artifact_sha256'] = checksum
         if (data['artifact_version'] != 1 or data['extraction_type'] != 'family_history'
-                or data['patient_id'] != patient_id or data['validation_status'] != 'VERIFIED'
+                or data['patient_id'] != patient_id or data['validation_status'] not in ('VERIFIED','PARTIAL_VALID')
                 or type(data['resolved_case_id']) is not int or data['resolved_case_id'] <= 0
                 or datetime.fromisoformat(data['created_at']).tzinfo is None):
             raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
@@ -69,21 +74,24 @@ def verify_sources(data, patient_id, case_id, inputs, manifest, session):
         raise VerifiedExtractionError('VERIFIED_EXTRACTION_STALE')
     try:
         run = session.get(ExtractionRun, data['source_run_id'])
-        if (run is None or run.status != 'SUCCESS' or run.prompt_version != PROMPT_VERSION
+        if (run is None or run.status not in ('SUCCESS','PARTIAL_VALID') or run.prompt_version != PROMPT_VERSION
                 or run.model_name != data['model_name'] or run.model_version != data['model_version']):
             raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         raw = run.raw_output
         expected_source = inputs[0].source_document_id if inputs else raw['empty_source_document_id']
         if (run.source_document_id != expected_source or raw['dry_run'] is not True
                 or raw['patient_id'] != patient_id or raw['resolved_case_id'] != case_id
-                or raw['patient_validation_status'] != 'SUCCESS' or raw['extraction_type'] != 'family_history'
+                or raw['patient_validation_status'] != run.status or raw['extraction_type'] != 'family_history'
                 or raw['source_manifest'] != manifest or raw['source_fingerprint'] != data['source_fingerprint']
                 or raw['selected_passages'] != [i.context() for i in inputs]
                 or raw['normalized_output'] != data['normalized_output']):
             raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
-        normalized = validate_family_history(raw['response'], patient_id, inputs)
-        if normalized != data['normalized_output']:
-            raise VerifiedExtractionError('VERIFIED_EXTRACTION_STALE')
+        normalized = validate_independent_family_history(raw['response'], patient_id, inputs)
+        expected_status='PARTIAL_VALID' if normalized['family_history'] and normalized['rejected_records'] else 'FAILED_VALIDATION' if normalized['rejected_records'] else 'SUCCESS'
+        if (run.status!=expected_status or data['validation_status']!=('PARTIAL_VALID' if expected_status=='PARTIAL_VALID' else 'VERIFIED')
+                or data['accepted_records']!=normalized['family_history'] or data['rejected_records']!=normalized['rejected_records']
+                or normalized != data['normalized_output']):
+            raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
         return normalized, run
     except VerifiedExtractionError:
         raise

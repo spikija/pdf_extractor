@@ -4,7 +4,7 @@ import re
 from .radiology_artifacts import digest
 
 FAMILY = re.compile(r'\b(?:Familienanamnese|family\s+history|famili\w*|familial|family)\b', re.I)
-KINSHIP = re.compile(r'\b(?:Mutter|Vater|Tochter|Sohn|Schwestern?|Bruder|Brüder|Geschwister|Großmutter|Grossmutter|Großvater|Grossvater|Tante|Onkel|Nichte|Neffe|Enkel\w*|Halb(?:bruder|schwester)|half[- ](?:brother|sister|sibling)|Cousin\w*|Kusine|Verwandt\w*|Ehefrau|Ehemann|mother|father|daughter|son|sister|brother|sibling|grandmother|grandfather|grandparent|aunt|uncle|niece|nephew|grandchild|cousin|relative|wife|husband)\b', re.I)
+KINSHIP = re.compile(r'\b(?:Mutter|Vater|Tochter|Sohn|Schwestern?|Bruder|Brüder|Geschwister|Großmutter|Grossmutter|Großvater|Grossvater|Großeltern|Grosseltern|Tante|Onkel|Nichte|Neffe|Enkel\w*|Halb(?:bruder|schwester)|half[- ](?:brother|sister|sibling)|Cousin\w*|Kusine|Verwandt\w*|Ehefrau|Ehemann|mother|father|daughters?|sons?|sisters?|brothers?|siblings?|grandmother|grandfather|grandparents?|aunts?|uncles?|nieces?|nephews?|grandchild(?:ren)?|cousin|relative|wife|husband)\b', re.I)
 HEADING = re.compile(r'^\s*(?:Familienanamnese|Family\s+history)\s*:?(.*)$', re.I)
 BOUNDARY = re.compile(r'^\s*(?:Eigenanamnese|Sozialanamnese|Medikation|Medikamente|Labor\w*|Genetik|Neurologischer\s+Status|Diagnosen|Therapie\w*|Anamnese)\s*:', re.I)
 
@@ -45,9 +45,22 @@ def select_family_history_inputs(bundle):
                             break
                         indices.add(following)
                         family_indices.add(following)
+            consumed=set()
             for index in sorted(indices):
+                if index in consumed:continue
                 # Narrative selection is sentence-sized, not an entire Anamnese.
-                for passage in re.split(r'(?<=[.!?])\s+', lines[index].strip()):
+                block=lines[index]
+                following=index+1
+                # Preserve wrapped sentence continuation, bounded by blank lines,
+                # explicit headings, and sentence completion. Never invent text.
+                while (not re.search(r'[.!?]\s*$',block) and following<len(lines)
+                       and lines[following].strip() and not BOUNDARY.match(lines[following])
+                       and not HEADING.match(lines[following])):
+                    consumed.add(following)
+                    block+='\n'+lines[following];following+=1
+                    if len(block)>4000:raise ValueError('Family-history passage exceeds focused input limit')
+                    if re.search(r'[.!?]\s*$',lines[following-1]):break
+                for passage in re.split(r'(?<=[.!?])\s+', block.strip()):
                     if index not in family_indices and not (FAMILY.search(passage) or KINSHIP.search(passage)):
                         continue
                     if len(passage) > 4000:

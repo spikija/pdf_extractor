@@ -241,7 +241,9 @@ class PipelineTests(unittest.TestCase):
         return r
 
     def artifact(self): return sorted(Path(self.temp.name,'123','verified').glob('examinations_*.json'))[-1]
-    def debug(self): return json.loads(Path(self.temp.name,'123','examinations_examinations_v2_source_result.json').read_text(encoding='utf-8'))
+    def debug(self):
+        from caa_pdf_extractor.llm.examination_prompts import PROMPT_VERSION
+        return json.loads(Path(self.temp.name,'123','examinations_'+PROMPT_VERSION+'.json').read_text(encoding='utf-8'))
 
     def test_dry_run_then_inference_free_commit_and_idempotency(self):
         dry=self.extract(); original=self.debug()['normalized_output']

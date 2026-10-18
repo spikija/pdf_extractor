@@ -19,7 +19,11 @@ def source_result(item):
     legend = re.search(r'(?im)^\s*Gray-Weale-Klassifikation\s*:', text)
     if legend: text = text[:legend.start()]
     text = text.strip()
-    if not text: raise ValueError('Header alone is not an examination result')
+    if not text:
+        if item.imaging_modality is not None:return item.header
+        raise ValueError('Header alone is not an examination result')
+    if item.imaging_modality is not None and len(text)>6000:
+        text=text[:6000].rsplit(' ',1)[0].rstrip()
     return text
 
 
@@ -45,7 +49,7 @@ def validate_examinations(raw, item):
         source, evidence, value = whitespace(item.text), whitespace(quotation), whitespace(record.result)
         if not value or not evidence or evidence not in source or value not in evidence:
             raise ValueError('Unsupported source quotation')
-        if value == whitespace(item.header): raise ValueError('Header alone is not an examination result')
+        if value == whitespace(item.header) and item.imaging_modality is None: raise ValueError('Header alone is not an examination result')
         if record.type != item.type or record.location != item.location:
             raise ValueError('Examination type/location not supported by header')
         expected_date = item.date_examination
@@ -64,10 +68,27 @@ def validate_examinations(raw, item):
             classification_reconciliation.append({'model_value':record.neck_vessel_result,
                                                  'normalized_value':chosen,'rule_version':'explicit_stenosis_v1'})
         record.neck_vessel_result = chosen
+        from .neck_ultrasound import summarize_neck
+        neck=summarize_neck(source_result(item)) if item.type=='ultrasound' and item.location=='neck vessels' else None
+        expected_neck=neck['summary'] if neck else None
+        if record.neck_ultrasound_summary is not None and record.neck_ultrasound_summary!=expected_neck:
+            raise ValueError('Coarse neck summary not supported by cervical evidence')
+        record.neck_ultrasound_summary=expected_neck
+        from .pet_rules import normalize_pet
+        pet = normalize_pet(item.imaging_modality,item.pet_report_text or item.text,header=item.header) if item.imaging_modality is not None else None
+        for field in ('amyloid_pet_result','fdg_pet_result','fdg_pet_pattern'):
+            expected=pet[field] if pet else None
+            if getattr(record,field) is not None and getattr(record,field)!=expected:
+                raise ValueError('PET classification not supported by exact source')
+            setattr(record,field,expected)
         record.result = record.result.strip()
         record.evidence = quotation
         records.append(record.model_dump(mode='json'))
-    return {**item.context(), 'records': records, 'neck_vessel_reconciliation':classification_reconciliation}
+    result={**item.context(), 'records': records, 'neck_vessel_reconciliation':classification_reconciliation}
+    if item.imaging_modality is not None:
+        result['pet_classification_audit']=normalize_pet(item.imaging_modality,item.pet_report_text or item.text,header=item.header)
+    if item.type=='ultrasound' and item.location=='neck vessels':result['neck_summary_audit']=summarize_neck(source_result(item))
+    return result
 
 
 def record_key(record):

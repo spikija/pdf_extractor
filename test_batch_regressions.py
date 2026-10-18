@@ -112,7 +112,7 @@ def test_case_identity_change_blocked(workflow):
 
 def test_existing_duplicate_preserved(workflow):
     workflow.run()
-    if workflow.domain=='clinical_history':workflow.h.rows.append(SimpleNamespace(disease='Example disease',date_disease=date(2015,12,11)))
+    if workflow.domain=='clinical_history':workflow.h.rows.append(SimpleNamespace(disease='Arterielle Hypertonie',date_disease=date(2015,12,11)))
     else:workflow.h.rows.append(SimpleNamespace(medication='Ramipril 5 mg 1-0-0',date_noted=None,date_stopped=None,medication_category=None))
     result=workflow.run(False);assert result['new_rows_inserted']==0 and result['duplicates_skipped']==1
 
@@ -164,8 +164,8 @@ def exam_bundle(text):
 def test_combined_anatomy_and_sides_split_exactly():
     text='Neurosonologie (17.07.2018)\nExtrakranielle Carotisabschnitte: unauffällig.\nExtrakranielle Vertebralisabschnitte: unauffällig.\nTranstemporal: Ohne Kontrastmittel\nLinks: ACM unauffällig.\nRechts: ACM unauffällig.\nInternistisches Schlaganfall Konsil (18.07.2018)\nFremder Befund.'
     selected=select_examination_inputs(exam_bundle(text))
-    assert [i.location for i in selected]==['neck vessels','brain','brain']
-    assert len({i.examination_id for i in selected})==3
+    assert [i.location for i in selected]==['neck vessels','brain']
+    assert len({i.examination_id for i in selected})==2
     for i in selected:
         assert i.text in text and i.date_examination=='2018-07-17' and i.page_number==4
         assert 'Fremder Befund' not in i.text

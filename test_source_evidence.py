@@ -118,17 +118,19 @@ def test_long_item_kept_in_provenance_with_contiguous_bounded_evidence():
     assert s.text[meta[0]['evidence_start']:meta[0]['evidence_end']]==evidence
 
 
-def test_abbreviation_punctuation_does_not_change_supported_disease():
+def test_abbreviation_punctuation_preserved_in_audit_only_surgery():
     _,s=source('1. Z.n roboterassistierter Patchplastik (TAPP) 08/2020')
-    result,rejected,_=validate_independent(json.dumps(records([s],['Z.n. roboterassistierter Patchplastik (TAPP) 08/2020'])),'123',[s])
-    assert not rejected and result.clinical_history[0].date_disease is None
+    result,rejected,meta=validate_independent(json.dumps(records([s],['Z.n. roboterassistierter Patchplastik (TAPP) 08/2020'])),'123',[s])
+    assert not rejected and not result.clinical_history
+    assert meta[0]['record']['date_disease'] is None
+    assert meta[0]['target_classification']=='SURGERY_ONLY' and meta[0]['audit_only'] is True
 
 
 def test_partial_history_artifact_commit_accepts_only_valid_records(tmp_path):
     b,s=source('1. Hypertonie\n2. Diabetes')
     p=records([s],['Hypertonie','invented diagnosis'])
     h=AuditHarness()
-    client=SimpleNamespace(runtime='fake',model_name='test',model_version='digest',generate_json=MagicMock(return_value=json.dumps(p)))
+    client=SimpleNamespace(runtime='fake',model_name='test',model_version='digest',generate_json=MagicMock(side_effect=[json.dumps(p),json.dumps({'patient_id':'123','clinical_history':[]})]))
     def run(dry=True):
         with patch.object(clinical_history,'build_patient_bundle',return_value=b):
             return clinical_history.extract_patient('123',dry_run=dry,client=client,session_factory=h.factory,debug_root=tmp_path)
@@ -142,7 +144,7 @@ def test_partial_history_artifact_commit_accepts_only_valid_records(tmp_path):
     assert run(False)['new_rows_inserted']==1
     assert run(False)['new_rows_inserted']==0
     assert [row.disease for row in h.rows]==['Hypertonie']
-    assert client.generate_json.call_count==1
+    assert client.generate_json.call_count==2
     # Rehashed attempted authorization of rejected output is blocked by original audit.
     a['accepted_records'].append(deepcopy(a['accepted_records'][0]))
     a.pop('artifact_sha256');a['artifact_sha256']=digest(a)
@@ -186,7 +188,8 @@ def test_wrong_other_type_normalized_only_from_explicit_exact_cmb():
     raw['findings']=[{'type':'other','acute_lesion':True,'evidence':text}]
     e=validate_independent_radiology(json.dumps(raw),'123',p)
     assert e['findings'][0]['type']=='cmb'
-    assert e['evidence_reconciliation'][0]=={'index':0,'model_type':'other','normalized_type':'cmb','normalization_method':'deterministic_phenotype_rule'}
+    assert e['evidence_reconciliation'][0]=={'index':0,'model_type':'other','normalized_type':'cmb','normalization_method':'deterministic_phenotype_rule',
+        'normalization_rule':'explicit_mri_phenotype_v1','exact_evidence':text}
 
 
 @pytest.mark.parametrize('text',[

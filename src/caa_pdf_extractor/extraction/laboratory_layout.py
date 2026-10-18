@@ -17,7 +17,7 @@ from .laboratory_inputs import MATCHERS, select_laboratory_inputs
 from .laboratory_models import NUMBER, parse_decimal
 from .radiology_artifacts import artifact_directory, digest
 
-METHOD_VERSION = 'laboratory_layout_v2'
+METHOD_VERSION = 'laboratory_layout_v3'
 ROW_TOLERANCE = 2.0
 DATE_TOKEN = re.compile(r'^(?:\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{4})$')
 UNITS = {'mg/dl', 'mg/l', '%', 'mmol/mol', 'mmol/m', 'pg/ml', 'ng/l', 'ng/ml', 'ratio', 'dimensionless'}
@@ -158,7 +158,7 @@ def extract_page(tokens, source_document_id):
         if marker is None or re.search(r'HbA1c[- ]Wert', text, re.I):
             continue
         # A planned interval, treatment target or narrative number is not a result cell.
-        if re.search(r'\b(?:Kontrolle|Laborkontrolle|Zielwert|Zielbereich|Hausarzt|Monaten?|Tagen?)\b', text, re.I):
+        if re.search(r'\b(?:Kontrolle|Laborkontrolle|Zielwert|Zielbereich|Hausarzt|Monaten?|Tagen?|geplant\w*|empfohlen\w*|Bestimmung|Referenzbereich|Normbereich)\b', text, re.I):
             continue
         before = [h for h in headers if h['y'] < min(t.y0 for t in row)]
         header = max(before, key=lambda h: h['y']) if before else None

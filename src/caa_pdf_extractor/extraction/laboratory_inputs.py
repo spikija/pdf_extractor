@@ -7,8 +7,8 @@ from .radiology_artifacts import digest
 PATTERNS = {
     'csf_beta4240_ratio': r'(?:A\s*(?:β|beta)\s*42\s*[/：:]\s*40|Amyloid\s*beta\s*42\s*[/：:]\s*40|Beta[- ]Amyloid\s*Quotient)',
     'csf_beta42': r'(?:A\s*(?:β|beta)\s*42|Beta[- ]Amyloid\s*1[- ]42|Amyloid\s*beta\s*42)',
-    'csf_tau_total': r'(?:Tau\s*gesamt|Gesamt[- ]Tau|total\s*tau|t[- ]Tau)',
-    'csf_ptau_total': r'(?:p[- ]Tau|phospho[- ]Tau|phosphoryliertes\s*Tau)',
+    'csf_tau_total': r'(?<!\w)(?:Tau\s+gesamt|Gesamt[-\s]+Tau|total[-\s]+tau|t[-\s]?Tau)(?!\w)',
+    'csf_ptau_total': r'(?<!\w)(?:p[-\s]?Tau|phospho[-\s]+Tau|phosphoryliertes\s+Tau)(?!\w)',
     'crp': r'(?:\bCRP\b|C[- ]reaktives\s*Protein)',
     'hba1c': r'(?:HbA1c\b|H[äa]moglobin\s*A1c)',
 }

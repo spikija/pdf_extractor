@@ -5,13 +5,13 @@ from .radiology_models import RadiologyExtraction
 from .radiology_inputs import report_text, procedure_context, examination_date
 from .validators import parse_json
 
-HEMORRHAGE = r'\b(?:h[äa]matom\w*|hematom\w*|blutung\w*|h[äa]morrhag\w*|hemorrhag\w*|haemorrhag\w*|basalganglienblutung\w*)\b'
+HEMORRHAGE = r'\b(?:ICB|ICH|h[äa]matom\w*|hematom\w*|blutung\w*|h[äa]morrhag\w*|hemorrhag\w*|haemorrhag\w*|basalganglienblutung\w*)\b'
 SUPPORT = {
-    'lobar': rf'(?=.*{HEMORRHAGE})(?=.*(?:frontal|parietal|temporal|okzipital|occipital|lob[äa]r|kortikal|cortical|mantelkante))',
+    'lobar': rf'(?=.*{HEMORRHAGE})(?=.*(?:frontal|frontolateral|parietal|temporal|okzipital|occipital|lob[äa]r|kortikal|cortical|mantelkante))',
     'basal ganglia': rf'(?=.*{HEMORRHAGE})(?=.*(?:basalgang|basal gang|putamen|globus pallidus|nucleus caudatus))',
     'subarachnoidal bleeding': rf'(?=.*{HEMORRHAGE})(?=.*(?:subarachnoid|subarachnoidal))',
     'cmb': r'\b(?:mikroblutung(?:en)?|microbleeds?|microhemorrhages?|microhaemorrhages?|punktf[öo]rmige[nrms]?\s+H[äa]mosiderinablagerung(?:en)?|Mikro[-\s]H[äa]mosiderinresidu(?:um|en))\b',
-    'css': r'(?:oberfl[äa]ch\w*\s+sideros|superficial\s+sideros|kortikal\w*\s+sideros)',
+    'css': r'(?:(?:oberfl[äa]ch\w*|superfiziell\w*|kortikal\w*|sulk[au]l\w*|leptomeningeal\w*)\s+(?:sideros\w*|h[äa]mosideros\w*|h[äa]mosiderinablagerung\w*)|(?:cortical\s+)?superficial\s+(?:siderosis|hemosiderosis))',
     'other': r'\b(?:other|sonstiger ph[äa]notyp)\b',
     'unknown': r'\b(?:unknown|unbekannter ph[äa]notyp)\b',
     'not specified': r'\b(?:not specified|nicht spezifizierter ph[äa]notyp)\b',
@@ -32,12 +32,13 @@ def phenotype_key(mri_date, finding):
     return (mri_date, finding.type, finding.acute_lesion)
 
 
-ACUITY_RULE_VERSION = 'phenotype_specific_v1'
+ACUITY_RULE_VERSION = 'event_clause_resorption_v2'
 NON_ACUTE = re.compile(
-    r'\b(?:alt(?:e[nmrs]?)?|chronisch\w*|residu\w*|sequel\w*|abgelaufen\w*|'
+    r'\bchron\.|\b(?:alt(?:e[nmrs]?)?|chronisch\w*|residu\w*|sequel\w*|abgelaufen\w*|'
     r'h[äa]mosiderin(?:rest\w*|resid\w*)|hemosiderin\s+(?:residu\w*|remnant\w*)|'
-    r'fr[üu]her\w*|vorbestehend\w*|zur[üu]ckliegend\w*|posth[äa]morrhag\w*|'
-    r'chronic|old|remote|previous)\b|\bZustand\s+nach\b|\bZ\.\s*n\.', re.I)
+    r'fr[üu]her\w*|stattgehabt\w*|vorbestehend\w*|zur[üu]ckliegend\w*|posth[äa]morrhag\w*|'
+    r'resorbiert\w*|chronic|old|remote|previous)\b|\bZustand\s+nach\b|\bZ\.\s*n\.'
+    r'|\bnach\s+Resorption\b|\bDefekt\w*\s+nach\s+(?:einer\s+)?Blutung', re.I)
 ACUTE = re.compile(r'\b(?:akut\w*|frisch\w*|neu(?:e[nmrs]?)?|rezent\w*|aktuell\w*|acute|current|fresh)\b', re.I)
 
 
@@ -53,7 +54,7 @@ def evidence_context(evidence, report):
     if start < 0:
         return evidence
     end = start + len(evidence)
-    boundaries = [m.end() for m in re.finditer(r'[.!?]\s+(?=[A-ZÄÖÜ])', report)]
+    boundaries = [m.end() for m in re.finditer(r'(?<!chron)[.!?]\s+(?=[A-ZÄÖÜ])', report)]
     left = max([0] + [b for b in boundaries if b <= start])
     right = min([len(report)] + [b for b in boundaries if b >= end])
     return report[left:right]
@@ -64,6 +65,22 @@ def derive_acuity(phenotype, evidence, report):
     if phenotype in ('cmb', 'css'):
         return False
     context = evidence_context(evidence, report)
+    # Split independent events before evaluating temporal modifiers. A quote
+    # cropped to the current event must not inherit an adjacent old bleed.
+    clauses = re.split(r';|\b(?:aber|jedoch|während)\b|(?:,|\bund\b)\s*(?=(?:akut\w*|frisch\w*|neu\w*|alt\w*|chronisch\w*|nach Resorption|Zustand nach)\b)', context, flags=re.I)
+    supported = [c for c in clauses if re.search(SUPPORT.get(phenotype, r'(?!)'), c, re.I)]
+    quoted = [c for c in supported if normalized_quote(evidence) in normalized_quote(c)]
+    if len(quoted) == 1:
+        context = quoted[0]
+    elif len(supported) == 1:
+        context = supported[0]
+    elif len(supported) > 1:
+        values = {derive_acuity(phenotype, c.strip(), c.strip()) for c in supported}
+        return values.pop() if len(values) == 1 else None
+    # An old hemosiderin deposit in an adjunct is a separate lesion, not a
+    # chronicity modifier of an explicitly acute macroscopic hemorrhage.
+    if re.search(r'\b(?:akut\w*|frisch\w*|acute|current)\s+(?:\w+\s+){0,3}' + HEMORRHAGE, context, re.I):
+        context = re.sub(r'\b(?:bei|neben|mit)\s+(?:\w+\s+){0,3}(?:H[äa]mosiderinresidu\w*|Residuen)\b[^;]*', '', context, flags=re.I)
     # Old/previous comparison imaging is not chronicity of the lesion itself.
     context = re.sub(r'\b(?:alt(?:e[nmrs]?)?|old|previous|remote|fr[üu]her\w*)\s+'
                      r'(?=(?:(?:Vergleichs|Sch[äa]del|head)[-\s]*)?(?:CT|MRI|MRT|scan|examination)\b)',
@@ -148,11 +165,35 @@ def validate_radiology(raw, patient_id, procedure):
 def source_sentences(text):
     """Exact spans, preserving source whitespace, dates and internal spelling."""
     start = 0
-    for match in re.finditer(r'[.!?](?:\s+)(?=[A-ZÄÖÜ])|\n\s*\n', text):
+    for match in re.finditer(r'(?<!chron)[.!?](?:\s+)(?=[A-ZÄÖÜ])|\n\s*\n', text):
         end = match.start()+1 if text[match.start()] in '.!?' else match.start()
         if text[start:end].strip(): yield text[start:end].strip()
         start = match.end()
     if text[start:].strip(): yield text[start:].strip()
+
+
+def explicit_phenotype_span(phenotype, span):
+    """Narrow positive source rule; uncertainty about etiology is not lesion uncertainty."""
+    text = normalized_quote(span)
+    match = re.search(SUPPORT[phenotype], text, re.I)
+    if not match:
+        return False
+    clauses = re.split(r';|\s+[-–—]\s+(?=(?:länger|Z\.|Zustand|nach|DD|unklar|fraglich)\b)',text,flags=re.I)
+    clause = next((c for c in clauses if re.search(SUPPORT[phenotype],c,re.I)),text)
+    if '?' in clause or re.search(r'\b(?:fraglich\w*|unklar\w*)\b',clause,re.I):
+        return False
+    if re.search(r'\b(?:V\.?\s*a\.|Verdacht\s+auf|suspekt\s+auf|fraglich\w*|m[öo]glich\w*|DD)\s*[:.]?\s*(?:' + SUPPORT[phenotype] + ')', clause, re.I):
+        return False
+    if phenotype == 'lobar':
+        # One explicit local statement must support the location, never borrow a
+        # cortical location elsewhere in a sentence about a deep hemorrhage.
+        if re.search(r'basalgang|thalam|hirnstamm|brainstem|cerebell|kleinhirn', text, re.I):
+            return False
+        if re.search(r'blutungsresid|blutungsrest|'+SUPPORT['cmb'], text, re.I):
+            return False
+    if re.search(r'\b(?:kein\w*|ohne|no)\s+(?:\w+\s+){0,4}(?:' + SUPPORT[phenotype] + ')', text, re.I):
+        return False
+    return True
 
 
 def validate_independent_radiology(raw, patient_id, procedure):
@@ -185,10 +226,13 @@ def validate_independent_radiology(raw, patient_id, procedure):
             item = Phenotype.model_validate_json(json.dumps(raw_record)).model_dump(mode='json')
             model_type = item['type']
             exact = normalized_quote(item['evidence']) in normalized_quote(report)
-            if exact and item['type']=='other' and re.search(SUPPORT['cmb'],item['evidence'],re.I):
-                item['type']='cmb'
-                reconciliation.append({'index':n,'model_type':model_type,'normalized_type':'cmb',
-                                       'normalization_method':'deterministic_phenotype_rule'})
+            if exact and item['type'] in ('other','unknown','not specified'):
+                matches = [t for t in ('cmb','css','lobar') if explicit_phenotype_span(t,item['evidence'])]
+                if len(matches) == 1:
+                    item['type']=matches[0]
+                    reconciliation.append({'index':n,'model_type':model_type,'normalized_type':item['type'],
+                        'normalization_rule':'explicit_mri_phenotype_v1','exact_evidence':item['evidence'],
+                        'normalization_method':'deterministic_phenotype_rule'})
             if not exact and item['type']=='cmb':
                 # Candidate selects a phenotype; an explicit positive source statement is the evidence.
                 for span in sentences:
@@ -204,6 +248,24 @@ def validate_independent_radiology(raw, patient_id, procedure):
             accepted.extend(checked['findings'])
         except (ValueError,TypeError,KeyError) as exc:
             rejected.append({'field':f'findings[{n}]','record':raw_record,'rejection_reason':str(exc)})
+    # Enumerate exact focused-MRI facts independently of model coverage. The
+    # ordinary strict validator still owns quotation, enums, acuity and provenance.
+    for phenotype in ('cmb','css','lobar'):
+        if any(item['type']==phenotype for item in accepted):
+            continue
+        for span in sentences:
+            if len(span)>800 or not explicit_phenotype_span(phenotype,span):
+                continue
+            candidate = {'type':phenotype,'acute_lesion':None,'evidence':span}
+            try:
+                checked = validate([candidate],neutral)
+            except ValueError:
+                continue
+            accepted.extend(checked['findings'])
+            reconciliation.append({'model_type':None,'normalized_type':phenotype,
+                'normalization_rule':'explicit_mri_phenotype_v1','exact_evidence':span,
+                'normalization_method':'deterministic_source_candidate'})
+            break
     additional = deepcopy(neutral)
     raw_additional = parsed['additional_findings']
     if set(raw_additional) != set(AdditionalFindings.model_fields):

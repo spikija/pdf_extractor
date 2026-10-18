@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import json
 import os
+from pathlib import Path
 from uuid import uuid4
 from ..config import load_environment
 from ..database.models import ExtractionRun
@@ -11,18 +12,21 @@ from .examination_validators import validate_examinations
 
 
 def fingerprint(item):
+    from .pet_rules import VERSION as pet_version
     return digest({'extraction_type': 'examinations', 'patient_id': item.patient_id,
                    'source_document_id': item.source_document_id, 'section_ids': [item.section_id],
                    'context': item.context(), 'source_text': item.text,
                    'prompt_version': PROMPT_VERSION, 'actual_prompt': examination_prompt(item),
-                   'result_policy':'exact_source_subreport_v1'})
+                   'result_policy':'exact_source_subreport_v1','pet_rule_version':pet_version,
+                   'pet_implementation':{p:Path(__file__).with_name(p).read_text(encoding='utf-8') for p in ('pet_rules.py','pet_components.py')},
+                   'neck_implementation':Path(__file__).with_name('neck_ultrasound.py').read_text(encoding='utf-8') if item.location=='neck vessels' else None})
 
 
-def save_artifact(patient_id, case_id, inputs, records, client, debug_root):
+def save_artifact(patient_id, case_id, inputs, records, client, debug_root, *, scope='ALL'):
     by_id = {r['examination']['examination_id']: r for r in records}
     created = datetime.now(timezone.utc)
     data = {'artifact_version': 1, 'extraction_type': 'examinations', 'patient_id': patient_id,
-            'resolved_case_id': case_id, 'validation_status': 'VERIFIED', 'created_at': created.isoformat(),
+            'resolved_case_id': case_id, 'validation_status': 'VERIFIED', 'created_at': created.isoformat(),'scope':scope,
             'prompt_version': PROMPT_VERSION, 'model_name': client.model_name,
             'model_version': client.model_version, 'runtime': client.runtime,
             'inputs': [{'context': i.context(), 'source_fingerprint': fingerprint(i),
@@ -31,13 +35,15 @@ def save_artifact(patient_id, case_id, inputs, records, client, debug_root):
     data['artifact_sha256'] = digest(data)
     folder = artifact_directory(patient_id, debug_root)
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"examinations_{created.strftime('%Y%m%dT%H%M%S%fZ')}_{uuid4().hex}.json"
+    prefix='pet_examinations' if scope=='PET_ONLY' else 'examinations'
+    path = folder / f"{prefix}_{created.strftime('%Y%m%dT%H%M%S%fZ')}_{uuid4().hex}.json"
     with path.open('x', encoding='utf-8') as f: f.write(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
     return path
 
 
-def load_artifact(patient_id, inputs, client, debug_root):
-    files = sorted(artifact_directory(patient_id, debug_root).glob('examinations_*.json'))
+def load_artifact(patient_id, inputs, client, debug_root, *, scope='ALL'):
+    prefix='pet_examinations' if scope=='PET_ONLY' else 'examinations'
+    files = sorted(artifact_directory(patient_id, debug_root).glob(prefix+'_*.json'))
     if not files: raise VerifiedExtractionError('NO_VERIFIED_EXTRACTION')
     path = files[-1]
     try:
@@ -50,7 +56,7 @@ def load_artifact(patient_id, inputs, client, debug_root):
                 or type(data['resolved_case_id']) is not int or data['resolved_case_id'] <= 0
                 or datetime.fromisoformat(data['created_at']).tzinfo is None):
             raise VerifiedExtractionError('VERIFIED_EXTRACTION_INVALID')
-        if data['prompt_version'] != PROMPT_VERSION: raise VerifiedExtractionError('VERIFIED_EXTRACTION_STALE')
+        if data['prompt_version'] != PROMPT_VERSION or data.get('scope','ALL')!=scope: raise VerifiedExtractionError('VERIFIED_EXTRACTION_STALE')
         if client:
             name, version = client.model_name, client.model_version
         else:

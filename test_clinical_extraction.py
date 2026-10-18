@@ -16,16 +16,16 @@ from caa_pdf_extractor.extraction.case_resolver import resolve_case_id, CaseReso
 
 
 def source(doc=1):
-    text = "Diagnosen\nExample disease (11.12.2015)\n"
+    text = "Diagnosen\nArterielle Hypertonie (11.12.2015)\n"
     return PreparedSection(f"doc{doc}_sec01", "123", doc, "Diagnosen", 1, 1,
                            text, text, ["clinical_history"])
 
 
 def output(doc=1):
     return {"patient_id": "123", "clinical_history": [{
-        "disease": "Example disease", "date_disease": "2015-12-11", "disease_category": None,
+        "disease": "Arterielle Hypertonie", "date_disease": "2015-12-11", "disease_category": None,
         "source_document_id": doc, "page_number": 1, "section_id": f"doc{doc}_sec01",
-        "source_text": "Example disease (11.12.2015)"}]}
+        "source_text": "Arterielle Hypertonie (11.12.2015)"}]}
 
 
 def bundle(count=1):
@@ -39,7 +39,7 @@ class ValidationTests(unittest.TestCase):
         result = validate_output(json.dumps(output()), "123", [source()])
         self.assertEqual(result.clinical_history[0].date_disease.isoformat(), "2015-12-11")
         self.assertEqual(len(deduplicate(result.clinical_history * 2)), 1)
-        altered = result.clinical_history[0].model_copy(update={"disease": "Example disease variant"})
+        altered = result.clinical_history[0].model_copy(update={"disease": "Arterielle Hypertonie variant"})
         self.assertEqual(len(deduplicate(result.clinical_history + [altered])), 2)
         different_date = result.clinical_history[0].model_copy(update={"date_disease": None})
         self.assertEqual(len(deduplicate(result.clinical_history + [different_date])), 2)
@@ -171,7 +171,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(self.runs[1].status, 'SUCCESS')
         self.assertEqual(self.runs[1].raw_output['response'], json.dumps(output()))
         exported = json.loads((Path(self.debug_temp.name) / '123' /
-                               'clinical_history_clinical_history_v3_date_ownership.json').read_text(encoding='utf-8'))
+                               'clinical_history_clinical_history_v4_item_recall.json').read_text(encoding='utf-8'))
         self.assertEqual(exported['granite_response'], output())
         self.assertEqual(exported['patient_validation_status'], 'SUCCESS')
         self.assertEqual(exported['section_ids'], ['doc1_sec01'])
@@ -197,9 +197,9 @@ class PipelineTests(unittest.TestCase):
         factory = self.setup_factory()
         value = output()
         value['clinical_history'][0]['date_disease'] = None
-        value['clinical_history'][0]['source_text'] = 'Example disease'
+        value['clinical_history'][0]['source_text'] = 'Arterielle Hypertonie'
         undated_bundle = bundle()
-        undated_bundle.documents[0].sections[0].text = 'Diagnosen\nExample disease\n'
+        undated_bundle.documents[0].sections[0].text = 'Diagnosen\nArterielle Hypertonie\n'
         with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=undated_bundle):
             client = self.client([json.dumps(value)])
             verified = extract_patient('123', client=client, session_factory=factory, debug_root=self.debug_temp.name)
@@ -218,7 +218,7 @@ class PipelineTests(unittest.TestCase):
         from caa_pdf_extractor.database.models import ClinicalHistory
         factory = self.setup_factory()
         session = factory.begin.return_value.__enter__.return_value
-        session.scalars.return_value = [SimpleNamespace(disease='EXAMPLE  disease', date_disease=date(2015, 12, 11))]
+        session.scalars.return_value = [SimpleNamespace(disease='ARTERIELLE  HYPERTONIE', date_disease=date(2015, 12, 11))]
         client = self.client([json.dumps(output())])
         with patch('caa_pdf_extractor.extraction.clinical_history.build_patient_bundle', return_value=bundle()):
             extract_patient('123', client=client, session_factory=factory, debug_root=self.debug_temp.name)
@@ -296,7 +296,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result['status'], 'NO_INPUT')
         client.generate_json.assert_not_called()
         self.assertEqual(self.added, [])
-        path = Path(self.debug_temp.name) / '123' / 'clinical_history_clinical_history_v3_date_ownership.json'
+        path = Path(self.debug_temp.name) / '123' / 'clinical_history_clinical_history_v4_item_recall.json'
         exported = json.loads(path.read_text(encoding='utf-8'))
         self.assertEqual(exported['patient_validation_status'], 'NO_INPUT')
         self.assertEqual(exported['normalized_output'], [])
