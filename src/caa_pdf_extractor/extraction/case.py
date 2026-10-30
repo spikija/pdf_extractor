@@ -92,6 +92,8 @@ def extract_patient(patient_id, *, dry_run=True, client=None, session_factory=No
         bundle = build_patient_bundle(patient_id, factory)
         inputs = select_inputs(bundle)
         output = extract(inputs)
+        from .gender_evidence import apply_to_case_output
+        output = apply_to_case_output(output,bundle)
         source_fingerprint = digest({'rules': fingerprint(bundle, inputs),
             'workflow': Path(__file__).read_text(encoding='utf-8')})
         with factory.begin() as session:

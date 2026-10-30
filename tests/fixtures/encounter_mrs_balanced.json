@@ -1,0 +1,182 @@
+[
+  {
+    "source_document_id": 1,
+    "admission_date": "11.12.2015",
+    "discharge_date": "05.01.2016",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n  Die  Aufnahme  von  Frau  Mühlfellner  erfolgte am  11.12.2015  wegen  einer  in  der  Früh  bemerkte\n  Halbseitenlähmung rechts mit Sprachstörung.",
+    "expected_phenotype": "FOCAL_NEUROLOGICAL_DEFICIT",
+    "expected_primary": "FOCAL_NEUROLOGICAL_DEFICIT"
+  },
+  {
+    "source_document_id": 11,
+    "admission_date": "27.12.2020",
+    "discharge_date": "18.01.2021",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Klinisch-neurologisch  zeigte  sich  eine  globale  Aphasie  sowie  ein  Mundastdefizit  rechts,  welche\n   fremdanamnestisch erstmals am Vormittag des Aufnahmetages aufgefallen war.",
+    "expected_phenotype": "FOCAL_NEUROLOGICAL_DEFICIT",
+    "expected_primary": "FOCAL_NEUROLOGICAL_DEFICIT"
+  },
+  {
+    "source_document_id": 13,
+    "admission_date": "17.07.2018",
+    "discharge_date": "20.07.2018",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n   Frau Pummerer wurde am 17.07.2018 aus unsere Zentralambulanz auf Grund von ein paar Minuten dauernder\n    Sprechstörung im Sinne von motorische Aphasie (am Samstag 12.07.2018) stationär aufgenommen.",
+    "expected_phenotype": "FOCAL_NEUROLOGICAL_DEFICIT",
+    "expected_primary": "FOCAL_NEUROLOGICAL_DEFICIT"
+  },
+  {
+    "source_document_id": 62,
+    "admission_date": "09.12.2024",
+    "discharge_date": "22.12.2024",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die Aufnahme der 72-jährigen Frau Dr. Patzner erfolgte am 09.12.2024 aufgrund einer plötzlich aufgetretenen\n    linksseitigenHemiparese ohne Sturzereignis oder Bewusstlosigkeit.",
+    "expected_phenotype": "FOCAL_NEUROLOGICAL_DEFICIT",
+    "expected_primary": "FOCAL_NEUROLOGICAL_DEFICIT"
+  },
+  {
+    "source_document_id": 53,
+    "admission_date": "28.03.2022",
+    "discharge_date": "06.04.2022",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Herr Pohl wurde am 28.03.2022 über unsere Neurologische Notfallambulanz vorstellig, aufgrund einer plötzlich\n    aufgetretenen Sprachstörung und Halbseitenschwäche rechts.",
+    "expected_phenotype": "FOCAL_NEUROLOGICAL_DEFICIT",
+    "expected_primary": "FOCAL_NEUROLOGICAL_DEFICIT"
+  },
+  {
+    "source_document_id": 15,
+    "admission_date": "24.08.2017",
+    "discharge_date": "29.08.2017",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die Patientin stürzte am 24.08.2017 auf die rechte Körperseite.\nDanach kam es laut dem Ehemann und dem Rettungssanitäter zu einem passageren Verwirrtheitszustand sowie\n   zu einer deutlichen Aphasie und einem Fazialisdefizit rechts für maximal eine Stunde.",
+    "expected_phenotype": "FOCAL_NEUROLOGICAL_DEFICIT",
+    "expected_primary": "UNKNOWN"
+  },
+  {
+    "source_document_id": 8,
+    "admission_date": "16.10.2017",
+    "discharge_date": "27.10.2017",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "mit dem Notarzt zutransferiert.\nEs ist zu erheben, dass der Patient gegen 15:40 einen\n    tonisch-klonischen Anfall erlitten hatte, von dem er nicht mehr aufgewacht  ist.",
+    "expected_phenotype": "EPILEPTIC_EVENT",
+    "expected_primary": "EPILEPTIC_EVENT"
+  },
+  {
+    "source_document_id": 9,
+    "admission_date": "15.11.2016",
+    "discharge_date": "17.11.2016",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n  Die stationäre Aufnahme des Patienten  erfolgte am 15.11.2016 aufgrund eines neuerlichen konvulsiven\n  epileptischen Anfalles mit Bewusstseinseintrübung.",
+    "expected_phenotype": "EPILEPTIC_EVENT",
+    "expected_primary": "EPILEPTIC_EVENT"
+  },
+  {
+    "source_document_id": 10,
+    "admission_date": "15.12.2013",
+    "discharge_date": "24.12.2013",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\nDer Patient wird mit dem Notarzt intubiert, beatmet zutransferiert mit konvulsivem Status epilepticus.",
+    "expected_phenotype": "EPILEPTIC_EVENT",
+    "expected_primary": "EPILEPTIC_EVENT"
+  },
+  {
+    "source_document_id": 35,
+    "admission_date": "03.11.2025",
+    "discharge_date": "14.11.2025",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n   Frau   Ressl   wurde  am   03.11.2025   aufgrund   einer   Verschlechterung   des   Gedächtnisses,\n    Desoientierungsepisodenund insgesamt kognitiver Verschlechterung stationär aufgenommen.",
+    "expected_phenotype": "COGNITIVE_DECLINE",
+    "expected_primary": "COGNITIVE_DECLINE"
+  },
+  {
+    "source_document_id": 37,
+    "admission_date": "22.08.2022",
+    "discharge_date": "26.08.2022",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n   Frau Ressl wurde am 23.08.2022 aufgrund einer akuten kognitiven Verschlechterung im Rahmen einer\n    zerebralen Vaskulitis stationär aufgenommen.",
+    "expected_phenotype": "COGNITIVE_DECLINE",
+    "expected_primary": "COGNITIVE_DECLINE"
+  },
+  {
+    "source_document_id": 38,
+    "admission_date": "09.12.2021",
+    "discharge_date": "17.12.2021",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die Patientin wird aufgrund einer weiteren Verschlechterung des Kurzzeitgedächtnisses sowie nächtlichen\n   Episoden  mit  Aufschrecken  und  deutlichem  Angst-  und  Panikgefühl  sowie  tagsüber  auftretendem\n    Sekundenschlaf und auch audditiven Halluzinationen, die die Patientin auch als irreal erkennt, zur weiteren\n    Abklärung und Kontrolle stationär aufgenommen.",
+    "expected_phenotype": "COGNITIVE_DECLINE",
+    "expected_primary": "COGNITIVE_DECLINE"
+  },
+  {
+    "source_document_id": 74,
+    "admission_date": "02.01.2026",
+    "discharge_date": "08.01.2026",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die stationäre Aufnahme von Herrn Dr. Musser erfolgte zur Abklärung psychomotorischer Verlangsamung und\n   Phasen mit Desorientiertheit sowie Amnesie.",
+    "expected_phenotype": "COGNITIVE_DECLINE",
+    "expected_primary": "COGNITIVE_DECLINE"
+  },
+  {
+    "source_document_id": 50,
+    "admission_date": "23.11.2021",
+    "discharge_date": "03.12.2021",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die stationäre Aufnahme von Frau Pfeiler erfolgte am 23.11.2021 aufgrund einer Wesensveränderung seit dem\n    19.11.2021.",
+    "expected_phenotype": "COGNITIVE_DECLINE",
+    "expected_primary": "COGNITIVE_DECLINE"
+  },
+  {
+    "source_document_id": 36,
+    "admission_date": "11.04.2023",
+    "discharge_date": "13.04.2023",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die Aufnahme von Frau Ressl erfolgte an der Neurologischen Sonderklasse-Station zur klinischen und\n    bildmorphologischenKontrolle bei zerebraler Vaskulitis.",
+    "expected_phenotype": "OTHER",
+    "expected_primary": "OTHER"
+  },
+  {
+    "source_document_id": 39,
+    "admission_date": "03.03.2021",
+    "discharge_date": "09.03.2021",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Die Patientin  stellt sich nun somit zur\n    klinischen und bildgebenden Verlaufskontrolle vor.",
+    "expected_phenotype": "OTHER",
+    "expected_primary": "OTHER"
+  },
+  {
+    "source_document_id": 40,
+    "admission_date": "16.11.2020",
+    "discharge_date": "30.11.2020",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die stationäre Aufnahme von Frau Ressl erfolgte geplant am 16.11.2020 zur Durchführung einer weiteren\n   Cyclophosphamid-Gabe (nach MS-Schema).",
+    "expected_phenotype": "OTHER",
+    "expected_primary": "OTHER"
+  },
+  {
+    "source_document_id": 23,
+    "admission_date": "20.03.2019",
+    "discharge_date": "22.03.2019",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die Patientin kommt geplant bei starke Müdigkeit über Tag und laut dem Ehemann schnarchen nachts zur\n   Polysomnographie bei Verdacht auf OSAS.",
+    "expected_phenotype": "OTHER",
+    "expected_primary": "OTHER"
+  },
+  {
+    "source_document_id": 47,
+    "admission_date": "25.02.2020",
+    "discharge_date": "13.03.2020",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Zusammenfassung des Aufenthalts\n    Die Patientin wird nach oben genannter Operation von der Neurochirurgie übernommen zur weiteren Therapie.",
+    "expected_phenotype": "OTHER",
+    "expected_primary": "OTHER"
+  },
+  {
+    "source_document_id": 76,
+    "admission_date": "12.02.2023",
+    "discharge_date": "27.02.2023",
+    "heading": "Zusammenfassung des Aufenthalts",
+    "text": "Der Patient gab an, dass\n    er am Morgen des Vorstellungstages einen plötzlich einsetzenden Drehschwindel verspürt hatte.",
+    "expected_phenotype": "OTHER",
+    "expected_primary": "OTHER"
+  }
+]

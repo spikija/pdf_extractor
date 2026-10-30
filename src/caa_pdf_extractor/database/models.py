@@ -4,8 +4,8 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Integer,
-    JSON, Numeric, SmallInteger, Text, UniqueConstraint, text
+    BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, ForeignKeyConstraint, Integer,
+    JSON, Numeric, SmallInteger, Text, UniqueConstraint, CheckConstraint, Index, text
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from ..extraction.imaging_schema import (IMAGING_MODALITIES, DATE_SOURCES, RADIOLOGY_PATTERNS,
@@ -45,9 +45,24 @@ class Case(Base):
 
 class ClinicalHistory(Base):
     __tablename__ = 'clinical_history'
+    __table_args__=(
+        CheckConstraint('date_disease_year IS NULL OR date_disease_year BETWEEN 1 AND 9999',name='ck_history_year_range'),
+        CheckConstraint('date_disease_month IS NULL OR date_disease_month BETWEEN 1 AND 12',name='ck_history_month_range'),
+        CheckConstraint("""((date_disease_precision IS NULL AND date_disease_year IS NULL AND date_disease_month IS NULL AND date_disease_basis IS NULL AND date_disease_text IS NULL AND date_disease_proxy IS NULL) OR
+          (date_disease_precision='DAY' AND date_disease IS NOT NULL AND date_disease_year=EXTRACT(YEAR FROM date_disease) AND date_disease_month=EXTRACT(MONTH FROM date_disease) AND date_disease_proxy IS NULL AND date_disease_basis='EXPLICIT_DISEASE_DATE') OR
+          (date_disease_precision='MONTH' AND date_disease IS NULL AND date_disease_year IS NOT NULL AND date_disease_month IS NOT NULL AND date_disease_proxy IS NULL AND date_disease_basis='EXPLICIT_MONTH_YEAR') OR
+          (date_disease_precision='YEAR' AND date_disease IS NULL AND date_disease_year IS NOT NULL AND date_disease_month IS NULL AND date_disease_proxy IS NULL AND date_disease_basis='EXPLICIT_YEAR') OR
+          (date_disease_precision='ADMISSION_PROXY' AND date_disease IS NULL AND date_disease_year IS NULL AND date_disease_month IS NULL AND date_disease_proxy IS NOT NULL AND date_disease_basis='CURRENT_ADMISSION_PROXY') OR
+          (date_disease_precision='UNKNOWN' AND date_disease IS NULL AND date_disease_year IS NULL AND date_disease_month IS NULL AND date_disease_proxy IS NULL AND date_disease_basis='UNKNOWN')) IS TRUE""",name='ck_history_precision_shape'))
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, nullable=False)
     case_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('case.id'), nullable=True)
-    date_disease: Mapped[date | None] = mapped_column(Date, nullable=True, server_default=text('CURRENT_DATE'))
+    date_disease: Mapped[date | None] = mapped_column(Date, nullable=True)
+    date_disease_year: Mapped[int | None] = mapped_column(SmallInteger,nullable=True)
+    date_disease_month: Mapped[int | None] = mapped_column(SmallInteger,nullable=True)
+    date_disease_precision: Mapped[str | None] = mapped_column(Enum('DAY','MONTH','YEAR','ADMISSION_PROXY','UNKNOWN',name='disease_date_precision'),nullable=True)
+    date_disease_basis: Mapped[str | None] = mapped_column(Enum('EXPLICIT_DISEASE_DATE','EXPLICIT_MONTH_YEAR','EXPLICIT_YEAR','CURRENT_ADMISSION_PROXY','UNKNOWN',name='disease_date_basis'),nullable=True)
+    date_disease_text: Mapped[str | None] = mapped_column(Text,nullable=True)
+    date_disease_proxy: Mapped[date | None] = mapped_column(Date,nullable=True)
     disease: Mapped[str | None] = mapped_column(Text, nullable=True)
     hospitalized: Mapped[bool | None] = mapped_column(Boolean, nullable=True, server_default=text('FALSE'))
     date_admissioned: Mapped[date | None] = mapped_column(Date, nullable=True, server_default=text('CURRENT_DATE'))
@@ -71,6 +86,168 @@ class ClinicalHistory(Base):
     epilepsy_type: Mapped[str | None] = mapped_column(Enum('focal seizures', 'generalised seizures', 'other', 'unknown', name='epilepsy_type_enum_5db7ea2f', native_enum=True), nullable=True)
     epileptic_status: Mapped[bool | None] = mapped_column(Boolean, nullable=True, server_default=text('FALSE'))
     aria_type: Mapped[str | None] = mapped_column(Enum('ARIA-E', 'ARIA-H', 'ARIA-E + H', 'ABRA', 'Combination', 'none', name='aria_type_enum_f672347c', native_enum=True), nullable=True, server_default=text("'none'"))
+
+class ClinicalHistoryEvidence(Base):
+    __tablename__='clinical_history_evidence'
+    id: Mapped[int] = mapped_column(BigInteger,primary_key=True,autoincrement=True)
+    clinical_history_id: Mapped[int] = mapped_column(Integer,ForeignKey('clinical_history.id'),nullable=False)
+    source_document_id: Mapped[int] = mapped_column(BigInteger,ForeignKey('source_documents.id'),nullable=False)
+    section_id: Mapped[str] = mapped_column(Text,nullable=False)
+    item_id: Mapped[str] = mapped_column(Text,nullable=False)
+    evidence_text: Mapped[str] = mapped_column(Text,nullable=False)
+    date_text: Mapped[str | None] = mapped_column(Text,nullable=True)
+    evidence_role: Mapped[str] = mapped_column(Enum('PRIMARY_DIAGNOSIS','CHILD_DIAGNOSIS','PAST_HISTORY','CURRENT_NARRATIVE','CORROBORATING','COPIED_FORWARD',name='clinical_history_evidence_role'),nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean,nullable=False,server_default=text('FALSE'))
+    __table_args__=(UniqueConstraint('clinical_history_id','source_document_id','section_id','item_id',name='uq_history_evidence_source_item'),)
+
+
+class HospitalEncounter(Base):
+    """One source inpatient letter; all inference remains in reviewed artifacts."""
+    __tablename__ = 'hospital_encounter'
+    from ..extraction.encounter_schema import mrs_shape as _mrs_shape
+    __table_args__ = (
+        UniqueConstraint('case_id', 'source_document_id', name='uq_encounter_case_source'),
+        CheckConstraint('discharge_date IS NULL OR admission_date IS NULL OR discharge_date >= admission_date', name='ck_encounter_date_order'),
+        CheckConstraint(_mrs_shape('pre_event_mrs'), name='ck_encounter_pre_event_mrs'),
+        CheckConstraint(_mrs_shape('admission_mrs'), name='ck_encounter_admission_mrs'),
+        CheckConstraint("mrs_confidence IS DISTINCT FROM 'LOW' OR admission_mrs IS NULL", name='ck_encounter_low_no_exact'),
+        CheckConstraint("pre_event_mrs_confidence IS DISTINCT FROM 'LOW' OR pre_event_mrs IS NULL", name='ck_encounter_pre_low_no_exact'),
+        CheckConstraint("sensory_duration_minutes IS NULL OR (sensory_duration_minutes>=0 AND sensory_duration_minutes::text NOT IN ('NaN','Infinity','-Infinity'))", name='ck_encounter_sensory_duration'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey('case.id'), nullable=False)
+    source_document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('source_documents.id'), nullable=False)
+    admission_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    discharge_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    admission_reason_primary: Mapped[str] = mapped_column(Enum('FOCAL_NEUROLOGICAL_DEFICIT', 'EPILEPTIC_EVENT', 'COGNITIVE_DECLINE', 'OTHER', 'UNKNOWN', 'SENSORY_SYMPTOMS', name='admission_reason_primary'), nullable=False)
+    admission_sensory_symptoms: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    sensory_symptom_present: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    sensory_polarity: Mapped[str | None] = mapped_column(Enum('POSITIVE','NEGATIVE','MIXED','UNKNOWN',name='sensory_polarity'),nullable=True)
+    sensory_type: Mapped[str | None] = mapped_column(Enum('PARESTHESIA','HYPOESTHESIA','HYPERESTHESIA','DYSESTHESIA','NUMBNESS','TINGLING','BURNING','OTHER','UNKNOWN',name='sensory_type'),nullable=True)
+    sensory_laterality: Mapped[str | None] = mapped_column(Enum('LEFT','RIGHT','BILATERAL','MIDLINE','NOT_LOCALIZABLE','UNKNOWN',name='sensory_laterality'),nullable=True)
+    sensory_distribution: Mapped[str | None] = mapped_column(Enum('FACE','MOUTH','TONGUE','UPPER_EXTREMITY','LOWER_EXTREMITY','TRUNK','HEMIBODY','MULTIFOCAL','OTHER','UNKNOWN',name='sensory_distribution'),nullable=True)
+    sensory_spreading: Mapped[bool | None] = mapped_column(Boolean,nullable=True)
+    sensory_transient: Mapped[bool | None] = mapped_column(Boolean,nullable=True)
+    sensory_duration_minutes: Mapped[Decimal | None] = mapped_column(Numeric,nullable=True)
+    sensory_stereotyped_recurrent: Mapped[bool | None] = mapped_column(Boolean,nullable=True)
+    sensory_assessment_json: Mapped[dict | None] = mapped_column(JSONB,nullable=True)
+    admission_focal_neurological_deficit: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    admission_epileptic_event: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    admission_cognitive_decline: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    admission_other: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    admission_reason_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pre_event_mrs: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    pre_event_mrs_min: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    pre_event_mrs_max: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    admission_mrs: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    admission_mrs_min: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    admission_mrs_max: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    mrs_source_type: Mapped[str | None] = mapped_column(Enum('EXPLICIT', 'ESTIMATED', name='mrs_source_type'), nullable=True)
+    mrs_confidence: Mapped[str | None] = mapped_column(Enum('HIGH', 'MODERATE', 'LOW', name='mrs_confidence'), nullable=True)
+    mrs_evidence_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pre_event_mrs_source_type: Mapped[str | None] = mapped_column(Enum('EXPLICIT', 'ESTIMATED', name='mrs_source_type'), nullable=True)
+    pre_event_mrs_confidence: Mapped[str | None] = mapped_column(Enum('HIGH', 'MODERATE', 'LOW', name='mrs_confidence'), nullable=True)
+    pre_event_mrs_evidence_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assessment_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('FALSE'))
+
+class CAADiagnosticEvent(Base):
+    """One reviewed diagnostic act; no automatic scalar case-date update."""
+    __tablename__='caa_diagnostic_event'
+    from ..extraction.sensory_caa_schema import DATE_SHAPE as _date_shape
+    from ..extraction.sensory_caa_schema import STATUS_SHAPE as _status_shape
+    __table_args__=(
+        UniqueConstraint('case_id','source_document_id','section_id','source_start','source_end','event_type','caa_status','criteria_system',name='uq_caa_diagnostic_source_event'),
+        CheckConstraint(_date_shape,name='ck_caa_diagnostic_date'),
+        CheckConstraint(_status_shape,name='ck_caa_diagnostic_status'),
+        CheckConstraint('page>0 AND source_start>=0 AND source_end>source_start AND length(evidence_text)=source_end-source_start',name='ck_caa_diagnostic_source'),
+        Index('ix_caa_diagnostic_case_date','case_id','event_date','event_year','event_month'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger,primary_key=True,autoincrement=True)
+    case_id: Mapped[int] = mapped_column(Integer,ForeignKey('case.id'),nullable=False)
+    source_document_id: Mapped[int] = mapped_column(BigInteger,ForeignKey('source_documents.id'),nullable=False)
+    event_type: Mapped[str] = mapped_column(Enum('SUSPICION','CLINICAL_DIAGNOSIS','CRITERIA_CLASSIFICATION','PATHOLOGY_CONFIRMATION',name='caa_event_type'),nullable=False)
+    caa_status: Mapped[str] = mapped_column(Enum('SUSPECTED','POSSIBLE','PROBABLE','PROBABLE_WITH_SUPPORTING_PATHOLOGY','DEFINITE','DIAGNOSED_UNSPECIFIED','UNKNOWN',name='caa_event_status'),nullable=False)
+    criteria_system: Mapped[str] = mapped_column(Enum('BOSTON_1_0','BOSTON_1_5','BOSTON_2_0','OTHER','UNSPECIFIED',name='caa_event_criteria'),nullable=False)
+    event_date: Mapped[date | None] = mapped_column(Date,nullable=True)
+    event_year: Mapped[int | None] = mapped_column(SmallInteger,nullable=True)
+    event_month: Mapped[int | None] = mapped_column(SmallInteger,nullable=True)
+    date_precision: Mapped[str] = mapped_column(Enum('DAY','MONTH','YEAR','UNKNOWN',name='caa_event_precision'),nullable=False)
+    date_basis: Mapped[str] = mapped_column(Enum('EXPLICIT_DIAGNOSIS_DATE','EXPLICIT_MONTH_YEAR','EXPLICIT_YEAR','CURRENT_DIAGNOSTIC_ENCOUNTER','UNKNOWN',name='caa_event_date_basis'),nullable=False)
+    evidence_text: Mapped[str] = mapped_column(Text,nullable=False)
+    page: Mapped[int] = mapped_column(Integer,nullable=False)
+    section_id: Mapped[str] = mapped_column(Text,nullable=False)
+    source_start: Mapped[int] = mapped_column(Integer,nullable=False)
+    source_end: Mapped[int] = mapped_column(Integer,nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean,nullable=False,server_default=text('FALSE'))
+
+
+class CognitiveAssessment(Base):
+    """One reviewed test event; source columns identify representative evidence."""
+    __tablename__ = 'cognitive_assessment'
+    from ..extraction.cognitive_schema import DATE_SHAPE as _date_shape, SCORE_SHAPE as _score_shape
+    __table_args__ = (
+        UniqueConstraint('case_id','source_document_id','section_id','source_start','source_end','test_type', name='uq_cognitive_source_mention'),
+        UniqueConstraint('id','case_id','test_type','score','max_score', name='uq_cognitive_event_owner_score'),
+        CheckConstraint(_score_shape, name='ck_cognitive_score'),
+        CheckConstraint(_date_shape, name='ck_cognitive_date'),
+        CheckConstraint('page > 0 AND source_start >= 0 AND source_end > source_start AND length(source_text)>0', name='ck_cognitive_source_span'),
+        Index('ix_cognitive_case_date','case_id','assessment_date','assessment_year','assessment_month'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey('case.id'), nullable=False)
+    source_document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('source_documents.id'), nullable=False)
+    test_type: Mapped[str] = mapped_column(Enum('MMSE','MOCA','OTHER', name='cognitive_test_type'), nullable=False)
+    score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    max_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    assessment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    assessment_year: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    assessment_month: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    date_precision: Mapped[str] = mapped_column(Enum('DAY','MONTH','YEAR','UNKNOWN', name='cognitive_date_precision'), nullable=False)
+    date_basis: Mapped[str] = mapped_column(Enum('EXPLICIT_TEST_DATE','EXPLICIT_MONTH_YEAR','EXPLICIT_YEAR','CURRENT_SECTION_DATE','UNKNOWN', name='cognitive_date_basis'), nullable=False)
+    context: Mapped[str] = mapped_column(Enum('CURRENT','HISTORICAL','EXTERNAL_REPORT','UNKNOWN', name='cognitive_context'), nullable=False)
+    source_text: Mapped[str] = mapped_column(Text, nullable=False)
+    page: Mapped[int] = mapped_column(Integer, nullable=False)
+    section_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('FALSE'))
+
+
+class CognitiveAssessmentEvidence(Base):
+    """Every source score mention, with a nullable reviewed event link."""
+    __tablename__ = 'cognitive_assessment_evidence'
+    from ..extraction.cognitive_schema import SCORE_SHAPE as _score_shape
+    from ..extraction.cognitive_evidence_schema import SOURCE_SHAPE as _source_shape, ROLE_SHAPE as _role_shape
+    __table_args__ = (
+        ForeignKeyConstraint(['cognitive_assessment_id','case_id','test_type','score','max_score'],
+            ['cognitive_assessment.id','cognitive_assessment.case_id','cognitive_assessment.test_type',
+             'cognitive_assessment.score','cognitive_assessment.max_score'], name='fk_cognitive_evidence_event_owner_score'),
+        UniqueConstraint('case_id','source_document_id','section_id','score_start','score_end','test_type', name='uq_cognitive_evidence_score_token'),
+        CheckConstraint(_score_shape, name='ck_cognitive_evidence_score'),
+        CheckConstraint(_source_shape, name='ck_cognitive_evidence_source'),
+        CheckConstraint(_role_shape, name='ck_cognitive_evidence_role_link'),
+        Index('ix_cognitive_evidence_event','cognitive_assessment_id'),
+        Index('ix_cognitive_evidence_case_document','case_id','source_document_id'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    cognitive_assessment_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey('case.id'), nullable=False)
+    source_document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('source_documents.id'), nullable=False)
+    page: Mapped[int] = mapped_column(Integer, nullable=False)
+    section_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    score_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    score_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_role: Mapped[str] = mapped_column(Enum('CURRENT_PERFORMED','HISTORICAL_REFERENCE','EXTERNAL_REPORT','COPIED_FORWARD','UNKNOWN_MENTION', name='cognitive_evidence_role'), nullable=False)
+    test_type: Mapped[str] = mapped_column(Enum('MMSE','MOCA','OTHER', name='cognitive_test_type'), nullable=False)
+    score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    max_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    date_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('FALSE'))
+
 
 class Examination(Base):
     __tablename__ = 'examinations'

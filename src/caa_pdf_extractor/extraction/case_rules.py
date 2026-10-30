@@ -27,7 +27,7 @@ ENUMS = {
 }
 DATE = r'(\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2})\b'
 CUES = {
-    'demographics': r'\b(?:geb\.|Geburtsdatum|geboren\s+am|date of birth|DOB|Geschlecht|gender|sex|Bildung|Schulbildung|education|Bildungsjahre|Schuljahre|berufstätig|pensioniert|Rentner|employment|education_level|employment_status)',
+    'demographics': r'\b(?:geb\.|Geburtsdatum|geboren\s+am|date of birth|DOB|Geschlecht|gender|sex|Patient(?:in)?\b|Herrn?\b|Frau\b|Bildung|Schulbildung|education|Bildungsjahre|Schuljahre|berufstätig|pensioniert|Rentner|employment|education_level|employment_status)',
     'lifestyle': r'\b(?:Raucher|Nichtraucher|Nieraucher|Ex-Raucher|Nikotin|smoking|smoked|former smoker|current smoker|raucht|geraucht|pack[- ]?years|p/y|PY|Alkohol|alcohol|C2\s*:)',
     'genetics': r'\b(?:APOE|Genetik|genetisch\w*|genetic|molekular\w*|genes)',
     'caa_classification': r'\b(?:CAA|Amyloidangiopathie|Boston|Edinburgh)',
@@ -259,4 +259,5 @@ def fingerprint(bundle, inputs):
                    'rule_version': VERSION, 'model': 'deterministic', 'model_version': VERSION,
                    'config': {'unknown': 'omit', 'placeholder_policy': 'review', 'granite': False},
                    'implementation': Path(__file__).read_text(encoding='utf-8'),
+                   'gender_implementation':Path(__file__).with_name('gender_evidence.py').read_text(encoding='utf-8'),
                    'death_implementation':Path(__file__).with_name('death_rules.py').read_text(encoding='utf-8')})
