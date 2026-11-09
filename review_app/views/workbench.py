@@ -5,7 +5,7 @@ import json
 
 import streamlit as st
 
-from caa_pdf_extractor.workbench_store import WorkbenchStore, PILOTS, integrity, fingerprint, read, candidate_entities
+from caa_pdf_extractor.workbench_store import WorkbenchStore, integrity, fingerprint, read, candidate_entities
 from caa_pdf_extractor.workbench_runner import run_module
 from caa_pdf_extractor.workbench_comparison import compare
 from review_app.review_repository import ReviewRepository
@@ -19,20 +19,23 @@ def render(module, selected, hashes, repo, patient, docs):
     title = f'Run {module} for this patient'
     key = f'{patient}:{module}:workbench'
     try:
-        ready = patient in PILOTS and bool(store.manifest(patient).get('source_context'))
+        ready = store.is_enabled(patient) and bool(store.manifest(patient).get('source_context'))
     except (OSError, ValueError, KeyError):
         st.error('Stable module manifest is unreadable. Restore or inspect it before running this module.')
         return
     if current:
         st.caption(f'CURRENT VALIDATED · {module} v{version}')
+    else:
+        st.caption(f'CURRENT VALIDATED · {module}: none; candidates require physician approval')
     if not ready:
-        st.info('Stable pilot sources must be migrated before running modules.')
+        st.info('Register this validation patient and prepare stable local sources before running modules.')
     if st.button(title, key=key + ':request', disabled=not ready):
         st.session_state[key + ':pending'] = dict(patient=patient, module=module, active=version)
     pending = st.session_state.get(key + ':pending')
     if pending:
         st.warning(f'Patient: {patient} · Module: {module} · Current validated version: {pending["active"] or "None"} · Source PDFs: {len(docs)}')
         st.caption('Runs the existing local assembler on saved, hash-checked source inputs. The result is a candidate; the active version stays current.')
+        if module=='diagnoses':st.caption('Diagnosis runs also infer probable admission reasons locally from complete discharge summaries. These inferences require physician review.')
         if st.button('CONFIRM RUN', key=key + ':confirm'):
             st.session_state.pop(key + ':pending', None)
             try:
@@ -53,7 +56,7 @@ def render(module, selected, hashes, repo, patient, docs):
             st.dataframe([dict(Revision=v, Status=e['status'], Active=v == version,
                                Created=e.get('created_at'), Algorithm=e.get('module_version', e['version']))
                           for v, e in versions.items()], hide_index=True, width='stretch')
-    candidates = [v for v, entry in versions.items() if entry['status'] in ('CANDIDATE', 'REJECTED')]
+    candidates = list(reversed([v for v, entry in versions.items() if entry['status'] in ('CANDIDATE', 'REJECTED')]))
     if not candidates:
         (diagnoses if module == 'diagnoses' else medications).render(selected, hashes, repo, patient, docs)
         return
@@ -63,7 +66,9 @@ def render(module, selected, hashes, repo, patient, docs):
     candidate_repo = ReviewRepository(repo.root / 'candidates' / candidate_version)
     valid = integrity(entry)
     gates = metadata['validation_test_results'].get('hard_gates', {})
-    passed = valid and bool(gates) and all(v is True for v in gates.values()) and not metadata.get('fatal_errors')
+    passed = valid and bool(gates) and all(v is True for v in gates.values()) and not metadata.get('fatal_errors') and not entry.get('assertion_safety', {}).get('promotion_blocked') and not entry.get('qa_hold')
+    if entry.get('qa_hold'):
+        st.error('INDEPENDENT SOURCE QA HOLD: ' + entry['qa_hold'])
     st.caption(f'{entry["status"]} v{candidate_version} · ' + ('Hard gates passed' if passed else 'FAILED — promotion blocked'))
     with st.expander('Candidate validation and run provenance'):
         st.json(metadata)
@@ -80,6 +85,8 @@ def render(module, selected, hashes, repo, patient, docs):
                            Changes=json.dumps(r['changes'], ensure_ascii=False)) for r in differences], hide_index=True, width='stretch')
         with st.expander('Comparison details'):
             st.json(differences)
+    if current is None and key + ':dataset' not in st.session_state:
+        st.session_state[key + ':dataset'] = 'CANDIDATE'
     dataset = st.radio('Dataset to review', ['CURRENT VALIDATED', 'CANDIDATE'], key=key + ':dataset', horizontal=True)
     if dataset == 'CANDIDATE':
         st.warning(f'CANDIDATE DATASET — {module} v{candidate_version}. This is not the active extraction.')

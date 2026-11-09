@@ -18,6 +18,11 @@ def patient_context(latest):
         p = folder / name if folder else None
         return read_json(p) if p and p.is_file() else default
     summary = load('patient_summary.json', {})
-    return {'documents': load('source_bundle.json', {}).get('documents', []),
+    documents=load('source_bundle.json', {}).get('documents', [])
+    eeg_folder=latest.get('eeg',{}).get('source_context_dir')
+    if eeg_folder:
+        eeg_documents=read_json(Path(eeg_folder)/'source_bundle.json')['documents']
+        documents=list({d['filename']:d for d in documents+eeg_documents}.values())
+    return {'documents': documents,
             'encounters': load('encounters.json', []),
             'demographics': summary.get('demographics', {}).get('update_fields', {})}

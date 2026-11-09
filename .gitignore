@@ -11,3 +11,4 @@ data/*
 data/reference/*
 !data/reference/medication_dictionary.csv
 *.pdf
+/output/caa_patients_for_andreea_mri_download.csv

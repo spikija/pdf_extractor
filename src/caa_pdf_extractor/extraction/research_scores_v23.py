@@ -32,9 +32,9 @@ def finish(parts,index,refs):
         score_index_date=index,components=parts,source_evidence_ids=sorted(set(refs)),rule_version=VERSION)
 
 
-def cha2ds2_va(*,confirmed_af,index_date,dob,facts):
-    if confirmed_af is not True:
-        return dict(score=None,score_complete=False,missing_components=['CONFIRMED_AF'],score_index_date=index_date,components={},source_evidence_ids=[],esc_oac_recommendation='NOT_ASSESSABLE',applicable=False,rule_version=VERSION)
+def cha2ds2_va(*,confirmed_af,index_date,dob,facts,af_state=None):
+    if confirmed_af is not True or af_state != 'CONFIRMED_AF':
+        return dict(score=None,score_complete=False,missing_components=['CONFIRMED_AF'],score_index_date=index_date,components={},source_evidence_ids=[],esc_oac_recommendation='NOT_ASSESSABLE',applicable=False,AF_state=af_state,rule_version=VERSION)
     age=age_at(dob,index_date);parts={};refs=[]
     for key,weight in [('C',1),('H',1),('D',1),('S2',2),('V',1)]:
         val=at_index(facts.get(key),index_date);parts[key]=weight if val is True else 0 if val is False else None
@@ -43,7 +43,7 @@ def cha2ds2_va(*,confirmed_af,index_date,dob,facts):
     parts['A']=1 if age is not None and 65<=age<75 else 0 if age is not None else None
     if age is not None:refs+=['DOB','INDEX_DATE']
     result=finish(parts,index_date,refs)
-    result.update(applicable=True,esc_oac_recommendation='NOT_ASSESSABLE' if result['score'] is None else 'LOW_RISK' if result['score']==0 else 'CONSIDER_OAC' if result['score']==1 else 'OAC_RECOMMENDED')
+    result.update(applicable=True,AF_state=af_state,esc_oac_recommendation='NOT_ASSESSABLE' if result['score'] is None else 'LOW_RISK' if result['score']==0 else 'CONSIDER_OAC' if result['score']==1 else 'OAC_RECOMMENDED')
     result.update(minimum_score(parts))
     result['component_states']={k:dict(state='UNKNOWN' if v is None else 'PRESENT' if v else 'ABSENT',points=v,
         ascertainment_basis='INSUFFICIENT_DATA' if v is None else 'DERIVED_FROM_STRUCTURED_DATA' if k in ('A2','A') else 'EXPLICIT_POSITIVE' if v else 'ABSENT_AFTER_ADEQUATE_REVIEW',

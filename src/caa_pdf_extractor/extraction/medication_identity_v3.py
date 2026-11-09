@@ -14,7 +14,7 @@ from ..module_artifacts import digest, sha
 ROOT = Path(__file__).resolve().parents[3]
 DICTIONARY = ROOT / 'data/reference/medication_dictionary.csv'
 ALIASES = ROOT / 'data/reference/medication_aliases_v3.json'
-VERSION = '3.0'
+VERSION = '3.1'
 COMMON_BRANDS = ('Thyrex Novalgin Durotiv Depakine Lovenox Detrusitol Forxiga Ozempic Victoza Neupro '
                  'Crestor Sevikar Vimpat Concor Pantoloc Euthyrox Wellbutrin Seroquel Circadin Buscopan '
                  'Sirdalud Citalostad Diclobene Restex').split() + ['Depakine Chronosphere']

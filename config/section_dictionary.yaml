@@ -1,0 +1,1274 @@
+version: 1
+non_heading_prefix_regex: ^\s*(?:[-•*]\s+|\d+[.)]\s+)
+source_document: docs\SectionStop_Dictionary_Manual.docx
+source_sha256: 6b664c3024933a7318be8553e0155a26847fc81241f30f94b3ff901d4760eb44
+manual_entries:
+- Status
+- 'Status neurologicus:'
+- Vorgeschichte / aktueller Beobachtungsgrund
+- Beurteilung
+- Therapieempfehlung
+- Therapieempfehlung
+- 'Prämedikation:'
+- Empfohlene Medikation
+- Weitere empfohlene Maßnahmen
+- Zusammenfassung des Aufenthalts
+- Detailbericht
+- Allergien und Medikamentenunverträglichkeiten
+- Anamnese
+- Neurologischer Befund*
+- Internistischer Befund*
+- Kernspintomographie:*
+- Neurosonologie*
+- ECHOKARDIOGRAPHIE*
+- Neurolinguistische Diagnostik*
+- Elektroenzephalografie (EEG)-Befund*
+- Neuropsychologische Diagnostik*
+- Laborwerte*
+- Computertomografie*
+- Neurologische Notfallambulanz*
+- Internistisches Schlaganfall Konsil*
+- Röntgen vom*
+- Mobile Video-EEG-Ableitung*
+- Arztbericht Gefäßchirurgie*
+- Dermatologischer Konsilbefund*
+- Infektiologisches Konsil*
+- Epikrise / Verlauf
+- Dermatologischer Befund*
+- Psychodiagnostischer Befund*
+- 'Bericht der Logopädie:'
+- 'Bericht der Physiotherapie:'
+- Doppler Duplex*
+- 24-STUNDEN-EKG*
+- Routine EEG*
+- Ultraschall-Abdomen*
+- TCD Vasospasmus*
+- Angiografie Carotiden beidseits*
+- SPECT HMPAO Gehirn*
+- Ultraschall Leiste*
+- HNO-Konsil*
+- Ernährungsmed. Beratung*
+- Coloskopie + Endoskopische Mucosaresektion*
+- 'Anfallsanamnese:'
+- 72-STUNDEN-EKG*
+- Ambulanzbrief Urologie*
+- Augenärztliches Konsil*
+- 'Angiografie: A. carotis interna li, Angiografie: A. carotis interna re, Angiografie:
+  A. carotis externa li, Angiografie: A. carotis externa re, Angiografie: A. vertebralis
+  rechts, Angiografie: A. vertebralis links*'
+prose_guard_regex: \b(?:wurde[n]?|wird|werden|war|waren|zeigte[n]?|empfohlen|erwähnt|ergab|ergaben|erfolgte|soll|konnte[n]?)\b
+continuation_line_regex: ^(?:\(?\d{1,2}\.\s*\d{1,2}\.\s*\d{2,4}\)?\s*:??|(?:Kernspintomographie|Angiografie):|(?:SWI|Diffusion|Schädel|Hirnstamm)\b)
+unknown_heading_regex: (?:[A-ZÄÖÜ][A-Za-zÄÖÜäöüß /-]{2,80}:|[A-ZÄÖÜ][A-ZÄÖÜ /-]{3,80})
+sections:
+- canonical_section: STATUS
+  section_family: STATUS
+  variants:
+  - Status
+  - 'Status neurologicus:'
+  match_type: CONTEXTUAL
+  boundary_strength: CONTEXTUAL
+  module_actions:
+    EEG: CONTEXTUAL
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Context resolved by module, never an unconditional global stop.
+- canonical_section: ANAMNESE
+  section_family: HISTORY
+  variants:
+  - Vorgeschichte / aktueller Beobachtungsgrund
+  - Anamnese
+  - 'Anfallsanamnese:'
+  - Aktuelle Anamnese
+  - Fremdanamnese
+  - Aktuelle Fremdanamnese
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: INCLUDE
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: ASSESSMENT
+  section_family: ASSESSMENT
+  variants:
+  - Beurteilung
+  - Zusammenfassung
+  match_type: CONTEXTUAL
+  boundary_strength: CONTEXTUAL
+  module_actions:
+    EEG: CONTEXTUAL
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Context resolved by module, never an unconditional global stop.
+- canonical_section: THERAPY_RECOMMENDATION
+  section_family: THERAPY
+  variants:
+  - Therapieempfehlung
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: PREMEDICATION
+  section_family: MEDICATION
+  variants:
+  - 'Prämedikation:'
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: RECOMMENDED_MEDICATION
+  section_family: MEDICATION
+  variants:
+  - Empfohlene Medikation
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: FURTHER_RECOMMENDATIONS
+  section_family: THERAPY
+  variants:
+  - Weitere empfohlene Maßnahmen
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: HOSPITAL_SUMMARY
+  section_family: HOSPITAL_SUMMARY
+  variants:
+  - Zusammenfassung des Aufenthalts
+  - Zusammenfassung des Aufenthaltes
+  match_type: CONTEXTUAL
+  boundary_strength: CONTEXTUAL
+  module_actions:
+    EEG: CONTEXTUAL
+    TFNE_CLINICAL_HISTORY: INCLUDE
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Context resolved by module, never an unconditional global stop.
+- canonical_section: DETAIL_REPORT
+  section_family: DETAIL_REPORT
+  variants:
+  - Detailbericht
+  match_type: CONTEXTUAL
+  boundary_strength: CONTEXTUAL
+  module_actions:
+    EEG: CONTEXTUAL
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Context resolved by module, never an unconditional global stop.
+- canonical_section: ALLERGY_INTOLERANCE
+  section_family: ALLERGY
+  variants:
+  - Allergien und Medikamentenunverträglichkeiten
+  - Allergien
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: EPIKRISIS_COURSE
+  section_family: EPIKRISIS_COURSE
+  variants:
+  - Epikrise / Verlauf
+  - Epikrise
+  match_type: CONTEXTUAL
+  boundary_strength: CONTEXTUAL
+  module_actions:
+    EEG: CONTEXTUAL
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Context resolved by module, never an unconditional global stop.
+- canonical_section: NEUROLOGICAL_EXAM
+  section_family: NEUROLOGICAL_EXAM
+  variants:
+  - Neurologischer Befund
+  - Neurologischer Status
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: INTERNAL_MEDICINE_EXAM
+  section_family: INTERNAL_MEDICINE_EXAM
+  variants:
+  - Internistischer Befund
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: NEUROLOGICAL_EMERGENCY_DEPARTMENT
+  section_family: NEUROLOGICAL_EMERGENCY_DEPARTMENT
+  variants:
+  - Neurologische Notfallambulanz
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: INTERNAL_MEDICINE_STROKE_CONSULT
+  section_family: INTERNAL_MEDICINE_STROKE_CONSULT
+  variants:
+  - Internistisches Schlaganfall Konsil
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: PSYCHODIAGNOSTIC_REPORT
+  section_family: PSYCHODIAGNOSTIC_REPORT
+  variants:
+  - Psychodiagnostischer Befund
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: DERMATOLOGY_REPORT
+  section_family: DERMATOLOGY_REPORT
+  variants:
+  - Dermatologischer Befund
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: DERMATOLOGY_CONSULT
+  section_family: DERMATOLOGY_CONSULT
+  variants:
+  - Dermatologischer Konsilbefund
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: INFECTIOUS_DISEASE_CONSULT
+  section_family: INFECTIOUS_DISEASE_CONSULT
+  variants:
+  - Infektiologisches Konsil
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: ENT_CONSULT
+  section_family: ENT_CONSULT
+  variants:
+  - HNO-Konsil
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: OPHTHALMOLOGY_CONSULT
+  section_family: OPHTHALMOLOGY_CONSULT
+  variants:
+  - Augenärztliches Konsil
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: UROLOGY_OUTPATIENT_LETTER
+  section_family: UROLOGY_OUTPATIENT_LETTER
+  variants:
+  - Ambulanzbrief Urologie
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: VASCULAR_SURGERY_REPORT
+  section_family: VASCULAR_SURGERY_REPORT
+  variants:
+  - Arztbericht Gefäßchirurgie
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: MRI
+  section_family: MRI
+  variants:
+  - 'Kernspintomographie:'
+  - Kernspintomografie
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: INCLUDE
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: CT
+  section_family: CT
+  variants:
+  - Computertomografie
+  - Computertomographie
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: INCLUDE
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: X_RAY
+  section_family: X_RAY
+  variants:
+  - Röntgen vom
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: INCLUDE
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: CAROTID_ANGIOGRAPHY
+  section_family: ANGIOGRAPHY
+  variants:
+  - Angiografie Carotiden beidseits
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: INCLUDE
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: ANGIOGRAPHY_MULTI_VESSEL
+  section_family: ANGIOGRAPHY
+  variants:
+  - 'Angiografie: A. carotis interna li'
+  - 'Angiografie: A. carotis interna re'
+  - 'Angiografie: A. carotis externa li'
+  - 'Angiografie: A. carotis externa re'
+  - 'Angiografie: A. vertebralis rechts'
+  - 'Angiografie: A. vertebralis links'
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: INCLUDE
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: SPECT_BRAIN
+  section_family: SPECT
+  variants:
+  - SPECT HMPAO Gehirn
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: INCLUDE
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: EEG
+  section_family: EEG
+  variants:
+  - Elektroenzephalografie (EEG)-Befund
+  - Elektroenzephalographie (EEG)-Befund
+  - Routine EEG
+  - EEG
+  - EEG Befund
+  - cEEG
+  - cEEG Kurzbefund
+  - kontinuierliches EEG
+  - continuous EEG
+  - Langzeit EEG
+  - Standard EEG
+  - Schlafentzugs EEG
+  - mobiles EEG
+  - MOBILE EEG
+  - Schlaf EEG
+  - Elektroenzephalogramm EEG Befund
+  - Elektroencephalografie EEG Befund
+  - Epilepsiemonitoring
+  - Intensives Epilepsiemonitoring
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: KEEP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: VIDEO_EEG
+  section_family: EEG
+  variants:
+  - Mobile Video-EEG-Ableitung
+  - Video EEG
+  - Video EEG Monitoring
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: KEEP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+  subtype: VIDEO_EEG
+- canonical_section: ECHOCARDIOGRAPHY
+  section_family: ECHOCARDIOGRAPHY
+  variants:
+  - ECHOKARDIOGRAPHIE
+  - Echokardiografie
+  - Herzecho
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: LONG_TERM_ECG_24H
+  section_family: ECG
+  variants:
+  - 24-STUNDEN-EKG
+  - 24 H EKG
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+  subtype: ECG_24H
+- canonical_section: LONG_TERM_ECG_72H
+  section_family: ECG
+  variants:
+  - 72-STUNDEN-EKG
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+  subtype: ECG_72H
+- canonical_section: RESTING_ECG
+  section_family: ECG
+  variants:
+  - RUHE EKG
+  - RUHE ECG
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+  subtype: RESTING_ECG
+- canonical_section: LONG_TERM_ECG
+  section_family: ECG
+  variants:
+  - LANGZEIT EKG
+  - HOLTER EKG
+  - 48 STUNDEN EKG
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+  subtype: LONG_TERM_ECG
+- canonical_section: ECG
+  section_family: ECG
+  variants:
+  - EKG
+  - ECG
+  - 12 KANAL EKG
+  - 12 KANAL ECG
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: NEUROSONOLOGY
+  section_family: NEUROSONOLOGY
+  variants:
+  - Neurosonologie
+  - Duplexsonographie
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: DOPPLER_DUPLEX
+  section_family: ULTRASOUND
+  variants:
+  - Doppler Duplex
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: TCD_VASOSPASM
+  section_family: ULTRASOUND
+  variants:
+  - TCD Vasospasmus
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: ABDOMINAL_ULTRASOUND
+  section_family: ULTRASOUND
+  variants:
+  - Ultraschall-Abdomen
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: GROIN_ULTRASOUND
+  section_family: ULTRASOUND
+  variants:
+  - Ultraschall Leiste
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: NEUROLINGUISTIC_ASSESSMENT
+  section_family: NEUROLINGUISTIC_ASSESSMENT
+  variants:
+  - Neurolinguistische Diagnostik
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: NEUROPSYCHOLOGY
+  section_family: NEUROPSYCHOLOGY
+  variants:
+  - Neuropsychologische Diagnostik
+  - Neuropsychologischer Befund
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: SPEECH_THERAPY
+  section_family: SPEECH_THERAPY
+  variants:
+  - 'Bericht der Logopädie:'
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: PHYSIOTHERAPY
+  section_family: PHYSIOTHERAPY
+  variants:
+  - 'Bericht der Physiotherapie:'
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: NUTRITION_COUNSELING
+  section_family: NUTRITION_COUNSELING
+  variants:
+  - Ernährungsmed. Beratung
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: LABORATORY
+  section_family: LABORATORY
+  variants:
+  - Laborwerte
+  - Labor
+  - Laborbefund
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: COLONOSCOPY_EMR
+  section_family: COLONOSCOPY_EMR
+  variants:
+  - Coloskopie + Endoskopische Mucosaresektion
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: PSYCHIATRY_CONSULT
+  section_family: PSYCHIATRY_CONSULT
+  variants:
+  - Psychiatrisches Konsil
+  - Psychiatrischer Konsil
+  - Psychiatrisches Konsilium
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: PSYCHIATRIC_STATUS
+  section_family: PSYCHIATRIC_STATUS
+  variants:
+  - Psychiatrischer Status
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: SOMATIC_STATUS
+  section_family: SOMATIC_STATUS
+  variants:
+  - Somatischer Status
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: MRI_ABBREVIATION
+  section_family: MRI
+  variants:
+  - '(?:MRT|MRI)(?: [^.!?]{1,160})?'
+  match_type: REGEX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: INCLUDE
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+  require_date_for_continuation: true
+- canonical_section: CT_ABBREVIATION
+  section_family: CT
+  variants:
+  - '(?:CT|CCT|CTA)(?: [^.!?]{1,160})?'
+  match_type: REGEX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: INCLUDE
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+  require_date_for_continuation: true
+- canonical_section: DIAGNOSES
+  section_family: DIAGNOSES
+  variants:
+  - Diagnosen
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: MEDICATION
+  section_family: MEDICATION
+  variants:
+  - Medikation
+  - Dauermedikation
+  - Entlassungsmedikation
+  - Aufnahmemedikation
+  - Medikamente
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: PROCEDURE_PLAN
+  section_family: THERAPY
+  variants:
+  - Prozedere
+  - Procedere
+  - Kontrollen
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: FINDINGS
+  section_family: FINDINGS
+  variants:
+  - Befunde
+  match_type: EXACT_NORMALIZED
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: FAMILY_HISTORY
+  section_family: OTHER_HISTORY
+  variants:
+  - Familienanamnese
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: SOCIAL_HISTORY
+  section_family: OTHER_HISTORY
+  variants:
+  - Sozialanamnese
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: VEGETATIVE_HISTORY
+  section_family: OTHER_HISTORY
+  variants:
+  - Vegetative Anamnese
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: CLINICAL_FINDINGS
+  section_family: CLINICAL_FINDINGS
+  variants:
+  - Untersuchungsbefund
+  - Klinischer Befund
+  - Neurostatus
+  - Gefäßstatus
+  - Pulsstatus
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: OTHER_REPORTS
+  section_family: OTHER_REPORTS
+  variants:
+  - Auszüge aus
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: LETTER_END
+  section_family: ADMINISTRATIVE
+  variants:
+  - Mit freundlichen
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Physician dictionary or confirmed existing regression variant.
+- canonical_section: INTERNAL_MEDICINE_CONSULT
+  section_family: INTERNAL_MEDICINE_CONSULT
+  variants:
+  - Internistisches Konsil
+  - Internistischer Konsil
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Preserved pre-dictionary EEG peer boundary.
+- canonical_section: GENERAL_ULTRASOUND
+  section_family: ULTRASOUND
+  variants:
+  - Sonographie Befund
+  match_type: PREFIX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: true
+  case_sensitive: false
+  active: true
+  notes: Preserved pre-dictionary EEG peer boundary.
+- canonical_section: MEDICATION
+  section_family: MEDICATION
+  variants:
+  - MEDIKATION:.*
+  - DAUER\w*MEDIKATION.*
+  match_type: REGEX
+  boundary_strength: HARD
+  module_actions:
+    EEG: STOP
+    TFNE_CLINICAL_HISTORY: STOP
+    RADIOLOGY: STOP
+    CLINICAL_HISTORY: START_NEW_SECTION
+  parent_context: []
+  date_suffix_allowed: true
+  continuation_allowed: false
+  case_sensitive: false
+  active: true
+  notes: Inline medication headings stop peers; structured EEG template medication
+    fields remain internal.

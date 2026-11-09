@@ -2,6 +2,7 @@
 import re
 from .clinical_scales_v23 import dates
 from .research_scores_v23 import as_date,component
+from .assertion_scope import validate_assertion, af_observation, resolve_af
 
 FACTS={'C':r'Herzinsuffizienz|heart failure|kardiale\s+Dekompensation',
  'H':r'\bHypertonie\b|\bHypertension\b|\bHTN\b',
@@ -24,12 +25,33 @@ def facts_from_section(text,*,patient_id,document_id,section_id,available_date,p
             if not m:continue
             before=line[max(0,m.start()-45):m.start()]
             if key=='H' and re.search(r'pulmonal|portal|intrakraniell',before,re.I):continue
-            if re.search(r'Verdacht|\bV\s*\.\s*a\s*\.|DD\s*:|Ausschluss|Risiko',before,re.I):continue
-            negative=bool(re.search(r'\b(?:kein\w*|ohne|no|without)\b',before,re.I))
+            assertion=validate_assertion(line,m.start(),m.end())
+            if assertion['assertion_status'] not in ('ESTABLISHED','NEGATED'):continue
+            negative=assertion['assertion_status']=='NEGATED'
             eid=f'{document_id}:{section_id}:fact:{n}:{key}'
             out.append(dict(patient_id=str(patient_id),component=key,**component(not negative,available_date,[eid]),
-                source_document_id=str(document_id),section_id=section_id,page=page,reported_event_dates=dates(line),evidence_quote=line[:160],date_basis='DOCUMENT_AVAILABLE_DATE'))
+                source_document_id=str(document_id),section_id=section_id,page=page,reported_event_dates=dates(line),evidence_quote=line[:160],date_basis='DOCUMENT_AVAILABLE_DATE',
+                assertion_status=assertion['assertion_status'], explicit_positive=assertion['explicit_positive'],scope=assertion['scope'],
+                af_observation=af_observation(line,m.start(),m.end(),observation_date=available_date) if key=='AF' else None))
     return out
+
+
+def af_state_from_facts(rows, index_date=None):
+    """Only validated source assertions can confirm AF; legacy booleans are insufficient."""
+    observations=[]
+    for row in rows:
+        if row.get('component')!='AF':continue
+        obs=row.get('af_observation')
+        if not obs:
+            if row.get('assertion_status') != 'ESTABLISHED' or row.get('explicit_positive') is not True:
+                continue
+            quote=row.get('evidence_quote','')
+            from .assertion_scope import AF_PATTERN
+            match=AF_PATTERN.search(quote)
+            if not match:continue
+            obs=af_observation(quote,match.start(),match.end(),observation_date=row.get('evidence_date'))
+        observations.append(obs)
+    return resolve_af(observations,index_date=index_date)
 
 def facts_at_index(rows,index):
     """Unresolved contradictory facts remain unknown; absence stays missing."""

@@ -1,0 +1,62 @@
+version: 1
+header_max_fraction: 0.16
+footer_min_fraction: 0.85
+minimum_repeated_pages: 2
+clinical_protection_regex: \bEEG\b|cEEG|Theta|Delta|epilep|Hirnfunktions|Interpretation|beurteilbar|Grundaktiv|sharp|spike|Anfall|Reaktion|\b(?:Befund|Therapie|klinisch|wurde|zeigte|keine|stabil|erfolgte|hat|ist|war|klagte|Termine|Kontrollen)\b
+patterns:
+- pattern_id: UNIVERSITY_HOSPITAL
+  regex: Universitätsklinikum\s+der(?:\s+Paracelsus\s+Medizinischen(?:\s+Privatuniversität)?)?
+  strong: true
+  patient_identity_footer: false
+- pattern_id: UNIVERSITY_NEUROLOGY
+  regex: (?:Universitätsklinik|Uniklinik)\s*f\.?\s*Neurologie
+  strong: true
+  patient_identity_footer: false
+- pattern_id: PARACELSUS
+  regex: Paracelsus\s+Medizinischen(?:\s+Privatuniversität)?
+  strong: true
+  patient_identity_footer: false
+- pattern_id: PRIVATE_UNIVERSITY
+  regex: Privatuniversität
+  strong: true
+  patient_identity_footer: false
+- pattern_id: PHONE
+  regex: (?:Telefon|Fax)\s*:?\s*\+?\s*\d[\d\s()+/.-]*
+  strong: true
+  patient_identity_footer: false
+- pattern_id: CONTACT
+  regex: Neurologie\s*@\s*salk\s*\.\s*at\s*\|\s*www\s*\.\s*salk\s*\.\s*at
+  strong: true
+  patient_identity_footer: false
+- pattern_id: OPERATING_COMPANY
+  regex: Gemeinnützige\s+Salzburger\s+Landeskliniken\s*Betriebsgesellschaft\s*mbH
+  strong: true
+  patient_identity_footer: false
+- pattern_id: DOPPLER_CAMPUS
+  regex: Christian\s*[- ]?\s*Doppler\s*[- ]?\s*Klinik\s*\|\s*A\s*[- ]?\s*5020\s+Salzburg
+  strong: true
+  patient_identity_footer: false
+- pattern_id: ADDRESS_UID
+  regex: Ignaz\s*[- ]?\s*Harrer\s*(?:straße|strasse|str\.)\s*79\s*\|\s*UID\s*[-.]?\s*Nr\.?\s*ATU\s*\d+
+  strong: true
+  patient_identity_footer: false
+- pattern_id: COURT_REGISTER
+  regex: Landesgericht\s+Salzburg\s*\|\s*FN\s*\d+\s*[a-z]?(?:\s*\|\s*(?:Telefon|Fax)\s*\+?\d[\d\s()+/.-]*)?
+  strong: true
+  patient_identity_footer: false
+- pattern_id: PAGE_IDENTITY_BOILERPLATE
+  regex: '[^;\n]{2,120},\s*geb\s*\.?\s*:?\s*\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4}\s*;\s*Seite\s*(?P<page_number>\d+)\s*(?:von\s*\d+)?'
+  strong: true
+  patient_identity_footer: true
+- pattern_id: PAGE_NUMBER
+  regex: Seite\s+\d+(?:\s*(?:von|/)\s*\d+)?
+  strong: true
+  patient_identity_footer: false
+- pattern_id: UNIVERSITY_HOSPITAL_LEGACY
+  regex: Universitätsklinikum\s+Salzburg
+  strong: true
+  patient_identity_footer: false
+- pattern_id: HALLEIN
+  regex: Landesklinik\s+Hallein
+  strong: true
+  patient_identity_footer: false

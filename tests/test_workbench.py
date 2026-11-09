@@ -112,6 +112,20 @@ def test_stable_integrity_failure_never_falls_back_to_debug(tmp_path):
     assert 'diagnoses' not in selected and errors
 
 
+def test_independent_candidate_qa_hold_blocks_promotion_without_overwriting_revision(tmp_path):
+    from caa_pdf_extractor.workbench_store import atomic
+    store = WorkbenchStore(tmp_path / 'stable')
+    entry = store.publish(PATIENT, 'diagnoses', '4.1+provisional', payload(), meta())
+    before = {f['path']: sha(f['path']) for f in entry['artifacts']}
+    manifest = store.manifest(PATIENT)
+    manifest['modules']['diagnoses']['candidate_qa_holds'] = {entry['version']: 'Independent source QA failure'}
+    atomic(store.patient_dir(PATIENT) / 'module_manifest.json', manifest)
+    assert store.versions(PATIENT, 'diagnoses')[entry['version']]['qa_hold']
+    with pytest.raises(ValueError, match='independent source QA'):
+        store.promote(PATIENT, 'diagnoses', entry['version'], confirmed=True, reviews=adjudications(entry))
+    assert all(sha(path) == digest for path, digest in before.items())
+
+
 def test_semantic_comparison_and_stale_current_review(tmp_path):
     store = WorkbenchStore(tmp_path / 'stable')
     old = store.publish(PATIENT, 'diagnoses', '4.0', payload(), meta(), validated=True)
@@ -157,9 +171,13 @@ def test_real_shared_runner_is_single_patient_offline_candidate_only(tmp_path):
     md = read(dx['metadata_path'])
     assert dx['status'] == 'CANDIDATE' and all(md['validation_test_results']['hard_gates'].values())
     assert md['execution']['patient_ids'] == [PATIENT]
+    from caa_pdf_extractor.extraction.assertion_scope import VERSION as assertion_version
+    assert md['execution_evidence']['assertion_engine_version'] == assertion_version
+    assert md['execution_evidence']['guarded_assertion_count'] > 0
     assert not store.manifest(PATIENT)['modules']['diagnoses']['active_validated_version']
     med = run_module(PATIENT, 'medications', store=store)
-    assert med['module_version'] == '3.0'
+    from caa_pdf_extractor.extraction.medication_identity_v3 import VERSION as medication_version
+    assert med['module_version'] == medication_version
     assert all(read(med['metadata_path'])['validation_test_results']['hard_gates'].values())
     assert {str(p): sha(p) for p in source.iterdir()} == before
     assert sorted(p.name for p in store.root.iterdir() if p.is_dir()) == [PATIENT]

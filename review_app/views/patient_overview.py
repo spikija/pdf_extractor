@@ -1,24 +1,29 @@
 from review_app.config import MODULES
 from review_app.display_models import diagnosis_entities, medication_entities
 from review_app.review_repository import overlay
+from review_app.review_repository import ReviewRepository
+from review_app.artifact_repository import module_hash
 
 
 def module_rows(selected, latest, hashes, repo, patient):
     result = []
     all_dx_ids = set()
     for module in ('diagnoses', 'events'):
-        if module in selected:
-            all_dx_ids.update(r['entity_id'] for r in diagnosis_entities(selected[module], module == 'events'))
+        source = selected.get(module,latest.get(module))
+        if source:
+            all_dx_ids.update(r['entity_id'] for r in diagnosis_entities(source, module == 'events'))
     for module, label in MODULES.items():
         entry = selected.get(module, latest.get(module))
         status, pending, total = 'NOT_RUN', 0, 0
         if entry:
             source_status = entry.get('status', '')
             status = ('STALE' if 'STALE' in source_status else 'FAILED' if 'FAIL' in source_status else 'EXTRACTED')
-            if module in selected and module in ('diagnoses', 'events', 'medications'):
+            if (module in selected or source_status=='CANDIDATE') and module in ('diagnoses', 'events', 'medications'):
                 rows = medication_entities(entry) if module == 'medications' else diagnosis_entities(entry, module == 'events')
-                records = repo.load(patient, 'medications' if module == 'medications' else 'diagnoses')
-                statuses = [overlay(r, records.get(r['entity_id']), hashes[module])['physician_status'] for r in rows]
+                scope = ReviewRepository(repo.root / 'candidates' / entry['version']) if source_status=='CANDIDATE' else repo
+                records = scope.load(patient, 'medications' if module == 'medications' else 'diagnoses')
+                digest = hashes.get(module) or module_hash(entry)
+                statuses = [overlay(r, records.get(r['entity_id']), digest)['physician_status'] for r in rows]
                 ids = {r['entity_id'] for r in rows} if module == 'medications' else all_dx_ids
                 orphans = sum(r['action'] != 'RESET' and eid not in ids for eid, r in records.items()) if module != 'events' else 0
                 total = len(rows)
@@ -27,6 +32,17 @@ def module_rows(selected, latest, hashes, repo, patient):
             elif module in ('diagnoses', 'events', 'medications'):
                 status = 'STALE' if 'STALE' in source_status else 'FAILED' if 'FAIL' in source_status or source_status == 'VALIDATED' else 'REVIEW_REQUIRED'
                 pending = 1
+        if entry and entry.get('assertion_safety'):
+            status = 'STALE'
+            pending += 1
+        if entry and entry.get('qa_hold'):
+            status = 'FAILED'
+            pending += 1
+        if module=='eeg' and entry:
+            from review_app.cohort_dashboard import module_state
+            state=module_state(patient,'eeg',entry,repo)
+            status={'APPROVED':'PHYSICIAN_APPROVED','NOT_REVIEWED':'REVIEW_REQUIRED','IN_REVIEW':'REVIEW_REQUIRED','ERROR':'FAILED'}.get(state['status'],state['status'])
+            pending,total=state['pending'],state['total']
         result.append(dict(Module=label, Version=entry.get('version', '—') if entry else '—', Status=status,
                            **{'Review items': pending, 'Total entities': total,
                               'Source status': entry.get('status', 'NOT_RUN') if entry else 'NOT_RUN'}))
@@ -38,7 +54,7 @@ def patient_status(rows, has_reviews=False, errors=False):
     if errors or any(r['Status'] == 'FAILED' for r in rows):
         return 'ERROR'
     # Overall approval applies to implemented MVP modules; future dependency stale stays in Overview.
-    active = [r for r in rows if r['Module'] in ('Diagnoses', 'Clinical events', 'Medications')]
+    active = [r for r in rows if r['Module'] in ('Diagnoses', 'Clinical events', 'Medications', 'EEG') and r['Source status']!='NOT_RUN']
     if any(r['Status'] == 'STALE' for r in active):
         return 'STALE'
     if all(r['Status'] == 'PHYSICIAN_APPROVED' or (r['Status'] == 'EXTRACTED' and r['Total entities'] == 0) for r in active) and any(r['Total entities'] for r in active):

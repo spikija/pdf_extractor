@@ -1,0 +1,10 @@
+﻿source_variant,proposed_family,reason_for_uncertainty
+Status,STATUS,Family mapped; peer versus embedded section requires module context.
+Status neurologicus:,STATUS,Family mapped; peer versus embedded section requires module context.
+Beurteilung,ASSESSMENT,Family mapped; peer versus embedded section requires module context.
+Zusammenfassung,ASSESSMENT,Family mapped; peer versus embedded section requires module context.
+Zusammenfassung des Aufenthalts,HOSPITAL_SUMMARY,Family mapped; peer versus embedded section requires module context.
+Zusammenfassung des Aufenthaltes,HOSPITAL_SUMMARY,Family mapped; peer versus embedded section requires module context.
+Detailbericht,DETAIL_REPORT,Family mapped; peer versus embedded section requires module context.
+Epikrise / Verlauf,EPIKRISIS_COURSE,Family mapped; peer versus embedded section requires module context.
+Epikrise,EPIKRISIS_COURSE,Family mapped; peer versus embedded section requires module context.

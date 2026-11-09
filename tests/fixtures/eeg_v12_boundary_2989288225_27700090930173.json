@@ -1,0 +1,13 @@
+{
+  "patient_id": "2989288225",
+  "document_id": 27700090930173,
+  "document_pages": 8,
+  "filename": "3.pdf",
+  "page": 4,
+  "EEG_date": "2024-06-04",
+  "EEG_heading": "ELEKTROENZEPHALOGRAFIE (EEG)-Befund (04.06.2024)",
+  "expected_EEG_BOUNDED_SOURCE_TEXT": "Minimal abnormes EEG mit vereinzelter Theta-Einlagerung über links temporal Mitte bis hinten.\nInterpretation:\nDieses EEG zeigt eine minimale Funktionsstörung über links temporal Mitte bis hinten ohne Zeichen erhöhter\ncerebraler Erregungsbereitschaft.",
+  "subsequent_source_text": "\n\nRUHE EKG (04.06.2024)\nSR, HF 84/Min, Zeiten in der Norm.\n\nPsychiatrisches Konsil (03.06.2024)\nDepressive Symptome, psychischer Status, keine Suizidalität.\nAktuelle Psychopharmaka: Sertralin, Trittico, Quetiapin.\nTherapieempfehlung:\nPsychopharmakologische Behandlung.",
+  "expected_stop_heading": "RUHE EKG (04.06.2024)",
+  "expected_section_type": "ECG"
+}

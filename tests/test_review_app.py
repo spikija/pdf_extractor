@@ -129,4 +129,4 @@ def test_review_has_no_database_imports():
             else:
                 continue
             assert not any(any(term in n for term in ('sqlalchemy', 'psycopg', 'requests', 'httpx')) for n in names)
-            assert not any(n.startswith('caa_pdf_extractor') and not n.startswith('caa_pdf_extractor.workbench_') for n in names)
+            assert not any(n.startswith('caa_pdf_extractor') and not (n.startswith('caa_pdf_extractor.workbench_') or n == 'caa_pdf_extractor.extraction.assertion_review') for n in names)

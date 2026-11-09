@@ -667,7 +667,7 @@ def process_patient(pid, bundle, output, model, manifests):
     for item in select_medication_inputs(bundle):
         lines = [' '.join(str(c or '') for c in r) for t in item.tables for r in t['rows']]
         if not lines:
-            lines = [line.strip() for line in item.text.splitlines() if re.search(r'\d\s*(?:mg|µg|mcg|IE|I\.E\.|g\b)|\bTbl', line, re.I)]
+            lines = item.source_lines
         for n, line in enumerate(lines):
             meds.append(dict(patient_id=pid, **medication.normalize(line, dictionary), source_document_id=item.source_document_id,
                 page=item.page_number, section_id=item.section_id, evidence_id=f'{item.section_id}:MED:{n}',
@@ -684,10 +684,11 @@ def process_patient(pid, bundle, output, model, manifests):
                     if row['validation_status'] == 'VALID' and not row['audit_only']:
                         labrows.append(normalize_lab(row, pid))
     # AF source facts must have a dated document availability anchor. No diagnosis -> confirmed by medication inference.
-    af_facts = [f for f in facts if f['component'] == 'AF' and f['value'] is True]
-    af_index = min((f['evidence_date'] for f in af_facts), default=None)
+    af_resolution = evidence.af_state_from_facts(facts)
+    af_facts = [f for f in facts if f['component'] == 'AF' and f['value'] is True] if af_resolution['confirmed_af'] else []
+    af_index = af_resolution['af_index_date']
     indexed = evidence.facts_at_index(facts, af_index) if af_index else {}
-    cha = scores.cha2ds2_va(confirmed_af=bool(af_facts), index_date=af_index, dob=dob, facts=indexed)
+    cha = scores.cha2ds2_va(confirmed_af=af_resolution['confirmed_af'], af_state=af_resolution['AF_state'], index_date=af_index, dob=dob, facts=indexed)
     cha.update(patient_id=pid, index_id='FIRST_CONFIRMED_AF', index_basis='EARLIEST_SOURCE_DOCUMENT_DISCHARGE_AVAILABLE_BY', af_evidence=af_facts,
         indexed_facts=indexed, interpretation_scope='THROMBOEMBOLIC_INDICATION_ONLY; DOES_NOT_OVERRIDE_CAA_ICH_BLEEDING_REVIEW')
     orbit = scores.orbit(patient_id=pid, index_date=af_index, dob=dob, sex=gender['value'], facts=indexed, labs=labrows) if af_index else dict(applicable=False, missing_components=['CONFIRMED_AF_INDEX'])

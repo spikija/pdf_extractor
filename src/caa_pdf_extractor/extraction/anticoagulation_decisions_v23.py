@@ -1,6 +1,7 @@
 """Separate semantic recognition layer; no score or clinical treatment advice."""
 import re
 from .clinical_scales_v23 import dates
+from .assertion_scope import AF_PATTERN, validate_assertion
 
 OAC=re.compile(r'\bOAK\b|\bOAC\b|Antikoagul\w*|anticoagul\w*|Marcumar|Marcoumar|Eliquis|Xarelto|Pradaxa|Lixiana|Vorhofohr\w*|\bLAAO\b',re.I)
 RULES=[('LAAO_CONSIDERED',r'Vorhofohr\w*|\bLAAO\b'),('ANTIPLATELET_INSTEAD',r'(?:ASS|Clopidogrel|Thrombo\s*ASS).{0,55}(?:statt|anstelle)|(?:statt|anstelle).{0,55}(?:ASS|Clopidogrel)'),
@@ -36,6 +37,10 @@ def extract(text,*,patient_id,document_id,section_id,page,admission_date,dischar
             day=ds[0] if len(set(ds))==1 and owned_date else discharge_date if not historical else None
             date_basis='EXPLICIT_IN_DECISION_SENTENCE' if len(set(ds))==1 and owned_date else 'DOCUMENT_DISCHARGE_AVAILABLE_BY' if day else 'UNKNOWN'
             reasons=[key for key,rx in REASONS.items() if re.search(rx,sentence,re.I)]
+            af_match=AF_PATTERN.search(sentence)
+            af_assertion=validate_assertion(sentence,af_match.start(),af_match.end())['assertion_status'] if af_match else None
+            if 'AF' in reasons and af_assertion!='ESTABLISHED':
+                reasons.remove('AF')
             # Nearby AF is only an indication if the sentence explicitly links it.
             indication='AF' if 'AF' in reasons and re.search(r'bei|wegen|aufgrund|auf\s+Grund|for|due to',sentence,re.I) else 'MECHANICAL_VALVE' if 'MECHANICAL_VALVE' in reasons and re.search(r'bei|wegen|aufgrund',sentence,re.I) else 'UNKNOWN'
             at=text.find(sentence,offset);eid=f'{document_id}:{section_id}:decision:{max(at,offset)}'

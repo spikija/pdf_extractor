@@ -33,7 +33,7 @@ class ReviewRepository:
     def _file(self, patient, module):
         if not re.fullmatch(r'[A-Za-z0-9_-]+', str(patient)):
             raise ValueError('Invalid patient ID')
-        if module not in ('diagnoses', 'medications'):
+        if module not in ('diagnoses', 'medications', 'eeg'):
             raise ValueError('Unsupported review module')
         p = self.root / str(patient) / f'{module}_review.json'
         if not p.resolve().is_relative_to(self.root):

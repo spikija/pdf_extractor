@@ -19,6 +19,7 @@ STABLE_ROOT = ROOT / 'data' / 'patient_artifacts'
 PILOTS = ('2435608415', '2459345815', '2552817617', '2684469520', '2826947422')
 EDITABLE = ('diagnoses', 'medications')
 DOWNSTREAM = {
+    'eeg': set(),
     'diagnoses': {'events', 'AF', 'CHA2DS2_VA', 'ORBIT', 'CAA', 'CAA_chronology', 'OAC_decision_analysis'},
     'medications': {'ORBIT', 'OAC_decision_analysis', 'antithrombotic_exposure_analysis'},
 }
@@ -87,7 +88,10 @@ def integrity(entry):
 
 def fingerprint(entry):
     # Preserve existing physician review hashes across byte-identical migration.
-    return hashlib.sha256(''.join(sha(f['path']) for f in sorted(entry['artifacts'], key=lambda f: f['path'])).encode()).hexdigest()
+    value = ''.join(sha(f['path']) for f in sorted(entry['artifacts'], key=lambda f: f['path']))
+    if entry.get('assertion_safety'):
+        value += json.dumps(entry['assertion_safety'], sort_keys=True)
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def active_entries(manifest):
@@ -108,6 +112,9 @@ def active_entries(manifest):
             latest[module] = copy.deepcopy(list(group['versions'].values())[-1])
             if manifest.get('source_context'):
                 latest[module]['source_context_dir'] = manifest['source_context']['directory']
+    for entry in list(selected.values())+list(latest.values()):
+        if entry.get('module')=='eeg' and manifest.get('eeg_source_context'):
+            entry['source_context_dir']=manifest['eeg_source_context']['directory']
     return selected, latest, errors
 
 
@@ -116,12 +123,29 @@ class WorkbenchStore:
         self.root = Path(root).resolve()
 
     def patient_dir(self, patient):
-        if str(patient) not in PILOTS:
-            raise ValueError('Stage 1 supports only the five pilot patients; batch execution is disabled')
+        if not re.fullmatch(r'[0-9]{1,32}', str(patient)):
+            raise ValueError('A numeric patient ID is required')
         path = self.root / str(patient)
         if not path.resolve().is_relative_to(self.root):
             raise ValueError('Patient path escapes stable storage')
         return path
+
+    def enabled_patients(self):
+        path = self.root / 'validation_cohort.json'
+        if not path.exists():
+            return set(PILOTS)
+        registry = read(path)
+        ids = registry.get('patient_ids', [])
+        if len(ids) > 20 or len(ids) != len(set(ids)) or not all(isinstance(p, str) and re.fullmatch(r'[0-9]{1,32}', p) for p in ids):
+            raise ValueError('Invalid bounded validation cohort registry')
+        return set(ids)
+
+    def is_enabled(self, patient):
+        return str(patient) in self.enabled_patients()
+
+    def require_enabled(self, patient):
+        if not self.is_enabled(patient):
+            raise ValueError('Only one patient in the registered validation cohort may run; full-cohort processing is disabled')
 
     def manifest(self, patient):
         path = self.patient_dir(patient) / 'module_manifest.json'
@@ -140,14 +164,16 @@ class WorkbenchStore:
         """Recoverable JSONL projection; per-patient manifest commits are authoritative."""
         with file_lock(self.root / '.audit.lock'):
             events = []
-            for patient in PILOTS:
-                events.extend(self.manifest(patient).get('audit', []))
+            for path in sorted(self.root.glob('*/module_manifest.json')):
+                if path.parent.name.isdigit():
+                    events.extend(read(path).get('audit', []))
             events.sort(key=lambda e: (e['timestamp'], e.get('audit_id', '')))
             atomic_text(self.root / 'module_run_audit.jsonl', ''.join(json.dumps(e, ensure_ascii=False) + '\n' for e in events))
 
     def publish(self, patient, module, version, artifacts, metadata, *, validated=False, legacy=None):
-        if module not in EDITABLE:
-            raise ValueError('Only diagnoses and medications may be published')
+        if module not in EDITABLE and not (module=='eeg' and getattr(self,'eeg_only',False)):
+            raise ValueError('Unsupported module publisher')
+        self.require_enabled(patient)
         if not re.fullmatch(r'[A-Za-z0-9_.+-]+', version) or version in ('.', '..'):
             raise ValueError('Unsafe module revision')
         if not artifacts:
@@ -206,7 +232,12 @@ class WorkbenchStore:
             group['active_validated_version'] = entry['version']
 
     def versions(self, patient, module):
-        return self.manifest(patient)['modules'].get(module, {}).get('versions', {})
+        group = self.manifest(patient)['modules'].get(module, {})
+        versions = copy.deepcopy(group.get('versions', {}))
+        for version, reason in group.get('candidate_qa_holds', {}).items():
+            if version in versions:
+                versions[version]['qa_hold'] = reason
+        return versions
 
     def promote(self, patient, module, version, *, confirmed=False, reviews=None, expected_active=None):
         if not confirmed:
@@ -214,10 +245,16 @@ class WorkbenchStore:
         with file_lock(self.patient_dir(patient) / '.manifest.lock'):
             manifest = self.manifest(patient)
             group = manifest['modules'][module]
+            if version in group.get('candidate_qa_holds', {}):
+                raise ValueError('Candidate failed independent source QA; inspect its replacement revision')
             if group['active_validated_version'] != expected_active:
                 raise ValueError('Active version changed; compare and confirm again')
             entry = group['versions'][version]
             metadata = read(entry['metadata_path'])
+            if module == 'diagnoses':
+                from .extraction.assertion_review import unsafe_af_identity
+                if entry.get('assertion_safety', {}).get('promotion_blocked') or unsafe_af_identity(entry):
+                    raise ValueError('Assertion safety failure: canonical AF lacks positive source evidence; rerun required')
             gates = metadata['validation_test_results'].get('hard_gates', {})
             if entry['status'] != 'CANDIDATE' or not integrity(entry) or not gates or not all(v is True for v in gates.values()) or metadata.get('fatal_errors'):
                 raise ValueError('Candidate has failed gates, invalid hashes, fatal errors, or is no longer pending')
@@ -229,6 +266,8 @@ class WorkbenchStore:
                 if not Path(path).is_file() or sha(path) != expected:
                     raise ValueError('Candidate source inputs or medication reference changed; rerun required')
             entities = candidate_entities(entry, module)
+            if len({e['entity_id'] for e in entities}) != len(entities):
+                raise ValueError('Duplicate canonical entity IDs; extraction repair is required before promotion')
             reviews = reviews or {}
             current_hash = fingerprint(entry)
             for entity in entities:
@@ -272,6 +311,17 @@ class WorkbenchStore:
 def candidate_entities(entry, module):
     """Extraction-independent canonical review identities used to gate promotion."""
     result = []
+    by_name={Path(f['path']).name:f['path'] for f in entry['artifacts']}
+    if module=='eeg':
+        for name,identity in [('eeg_exams','eeg_exam_id'),('eeg_findings','finding_id')]:
+            result.extend(dict(row,entity_id=row[identity]) for row in read(by_name[name+'.json']))
+        return result
+    if module=='diagnoses' and 'patient_diagnoses.json' in by_name:
+        for name,identity in [('patient_diagnoses','patient_diagnosis_id'),('canonical_clinical_events','event_id'),
+            ('clinical_event_candidates','candidate_id'),('unmapped_diagnosis_candidates','candidate_id'),('admission_clinical_summary','admission_id')]:
+            if name+'.json' in by_name:
+                result.extend(dict(row,entity_id=row[identity]) for row in read(by_name[name+'.json']))
+        return result
     for f in entry['artifacts']:
         name = Path(f['path']).name
         if not name.endswith('.json'):
@@ -279,6 +329,8 @@ def candidate_entities(entry, module):
         if module == 'diagnoses' and name.startswith(('canonical_disease_identities', 'canonical_diagnoses', 'canonical_clinical_events')):
             for row in read(f['path']):
                 result.append(dict(row, entity_id=row.get('diagnosis_identity_id', row.get('event_id'))))
+        elif module == 'diagnoses' and name.startswith('unmapped_diagnosis_candidates'):
+            result.extend(dict(row,entity_id=row['candidate_id']) for row in read(f['path']))
         elif module == 'medications' and name.startswith('canonical_medications'):
             result.extend(dict(row, entity_id=row['drug_identity_id']) for row in read(f['path']))
         elif module == 'medications' and name.startswith('medication_exposures'):

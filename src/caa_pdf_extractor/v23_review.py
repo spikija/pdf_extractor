@@ -182,13 +182,13 @@ def generate(source,out):
     for pid,result in by_pid.items():
         case=result.get('case') or {};dob=case.get('date_of_birth');sex=str(case.get('gender') or '').lower()
         pfacts=[r for r in facts if r['patient_id']==pid]
-        afdays=[r['evidence_date'] for r in pfacts if r['component']=='AF' and r['value'] is True]
-        afday=min(afdays) if afdays else None
+        from .extraction.research_evidence_v23 import af_state_from_facts
+        afday=af_state_from_facts(pfacts)['af_index_date']
         indexes=[dict(index_id='FIRST_CONFIRMED_AF',index_date=afday,decision=None)] if afday else []
         indexes+=[dict(index_id=d['decision_id'],index_date=d['decision_date'],decision=d) for d in decision_rows if d['patient_id']==pid]
         for idx in indexes:
-            day=idx['index_date'];available=facts_at_index(pfacts,day);af=available.get('AF',{}).get('value') is True
-            c=cha2ds2_va(confirmed_af=af,index_date=day,dob=dob,facts=available)
+            day=idx['index_date'];available=facts_at_index(pfacts,day);af_resolution=af_state_from_facts(pfacts,index_date=day);af=af_resolution['confirmed_af']
+            c=cha2ds2_va(confirmed_af=af,af_state=af_resolution['AF_state'],index_date=day,dob=dob,facts=available)
             c.update(patient_id=pid,index_id=idx['index_id'],af_index_date=afday,af_index_date_basis='FIRST_SOURCE_CONFIRMED_AVAILABLE_DATE',cha2ds2_va_score=c['score'],component_evidence=available,dob_source_provenance=case.get('source_provenance'))
             for k,v in c['components'].items():c['component_'+k]=v
             cha.append(c)

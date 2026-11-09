@@ -39,13 +39,19 @@ def review_entities(title, raw_rows, entry, fingerprint, repo, patient, module, 
         st.info('No canonical entities available in the selected validated artifact.')
         return
     table = [{c: format_cell(r.get(c)) for c in columns} for r in rows]
-    st.dataframe(table, hide_index=True, width='stretch')
+    st.dataframe(table, hide_index=True, width='stretch',column_config={
+        'canonical_name':'Diagnosis','first_documented_date':'First documented','attributes':'Subtype / attributes',
+        'physician_status':'Review status','event_type':'Event type','event_date':'Event date',
+        'admission_linked':'Admission linked','admission_date':'Admission date',
+        'probable_admission_diagnosis':'Probable admission diagnosis','admission_event_id':'Linked event'})
     scope = ':' + entry['review_scope'] if entry.get('review_scope') else ''
     identity_key = f'{patient}:{key}{scope}:selection'
     selected = st.selectbox('Select item to review', range(len(rows)),
                             format_func=lambda i: f'{rows[i].get("canonical_name", rows[i].get("event_type", rows[i].get("canonical_drug", "UNRESOLVED")))} · {rows[i]["physician_status"]} · {rows[i]["entity_id"]}',
                             key=identity_key)
     raw, row = raw_rows[selected], rows[selected]
+    if raw.get('review_blocked'):
+        st.error(raw['pipeline_warning'] + '. Saving this ambiguous entity is blocked until extraction is repaired.')
     eid = raw['entity_id']
     widget = f'{patient}:{key}{scope}:{eid}:{fingerprint[:12]}'
     if st.session_state.get(f'{patient}:active') == eid:
@@ -64,6 +70,10 @@ def review_entities(title, raw_rows, entry, fingerprint, repo, patient, module, 
         if not evidence:
             st.info('No resolvable evidence records in this artifact.')
         for i, e in enumerate(evidence):
+            status = e.get('assertion_status', 'SOURCE_ONLY')
+            st.markdown(f'**Assertion: {"UNCERTAIN" if status == "SUSPECTED" else status}**')
+            if status == 'NEGATED':
+                st.warning('NEGATIVE OBSERVATION — this evidence does not establish a chronic diagnosis.')
             st.caption(f'Document {e.get("document_id", e.get("source_document_id", "Unknown"))} · page {e.get("page", "Unknown")} · section {e.get("section_id", e.get("section", "Unknown"))} · evidence {e.get("evidence_id", "Unknown")} · assertion {e.get("assertion_status", "Unknown")}')
             snippet = e.get('raw_text', e.get('raw_medication', e.get('evidence_text', '')))
             if snippet:
@@ -80,7 +90,7 @@ def review_entities(title, raw_rows, entry, fingerprint, repo, patient, module, 
                 value = json.dumps(value, ensure_ascii=False)
             physician[field] = st.text_input(field.replace('_', ' ').capitalize(), value='' if value is None else str(value), key=f'{widget}:edit:{field}')
         suggest = st.checkbox('Suggest this mapping for local medication dictionary', key=f'{widget}:suggest') if module == 'medications' else False
-        submitted = st.form_submit_button('Save review')
+        submitted = st.form_submit_button('Save review', disabled=bool(raw.get('review_blocked')))
     if submitted:
         if suggest and action != 'EDIT':
             st.error('Select EDIT to suggest a dictionary mapping.')

@@ -35,7 +35,7 @@ def test_isolated_wrappers_reuse_shared_validator():
 
 
 def test_shared_score_exposes_minimum_in_actual_calculator():
-    r=cha2ds2_va(confirmed_af=True,index_date='2020-01-01',dob='1940-01-01',facts={
+    r=cha2ds2_va(confirmed_af=True,af_state="CONFIRMED_AF",index_date='2020-01-01',dob='1940-01-01',facts={
         'H':component(True,'2019-01-01',['H']), 'S2':component(True,'2018-01-01',['S'])})
     assert r['score'] is None and r['cha2ds2_va_exact'] is None
     assert r['cha2ds2_va_minimum_confirmed']==5 and r['cha2ds2_va_maximum_possible']==8

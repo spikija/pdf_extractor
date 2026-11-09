@@ -128,10 +128,10 @@ def test_cerad_table_header_cannot_consume_a_date_or_mmse_column():
 
 def test_cha_age_exclusive_and_no_future():
     fs={k:fact(False) for k in ('C','H','D','S2','V')}
-    r=cha2ds2_va(confirmed_af=True,index_date='2022-03-28',dob='1944-01-01',facts=fs)
+    r=cha2ds2_va(confirmed_af=True,af_state="CONFIRMED_AF",index_date='2022-03-28',dob='1944-01-01',facts=fs)
     assert r['score']==2 and r['components']['A']==0
     fs['H']=fact(True,'2022-03-29')
-    assert cha2ds2_va(confirmed_af=True,index_date='2022-03-28',dob='1944-01-01',facts=fs)['score'] is None
+    assert cha2ds2_va(confirmed_af=True,af_state="CONFIRMED_AF",index_date='2022-03-28',dob='1944-01-01',facts=fs)['score'] is None
     assert not cha2ds2_va(confirmed_af=False,index_date='2022-03-28',dob='1944-01-01',facts=fs)['applicable']
 
 def test_boolean_zero_not_a_sourced_negative():assert at_index(fact(0),'2022-03-28') is None

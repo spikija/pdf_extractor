@@ -8,11 +8,13 @@ sys.dont_write_bytecode = True
 os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
 
 import streamlit as st
-from review_app.artifact_repository import discover, select_modules, module_hash
+from review_app.artifact_repository import discover, select_modules, module_hash, read_json
 from review_app.patient_repository import patient_context
 from review_app.pdf_utils import documents, render_page
 from review_app.review_repository import ReviewRepository
-from review_app.views import patient_overview, future_modules, workbench
+from review_app.views import patient_overview, future_modules, workbench, eeg, tfne
+from review_app import cohort_dashboard
+from review_app.tfne_repository import ARTIFACT_VERSIONS
 
 st.set_page_config(page_title='Local physician review', layout='wide')
 repo = ReviewRepository()
@@ -48,11 +50,25 @@ def main():
         st.cache_data.clear()
         st.rerun()
     st.sidebar.header('PATIENTS')
-    queue = st.sidebar.selectbox('Review queue', ['ALL PATIENTS', 'REVIEW REQUIRED', 'UNREVIEWED', 'APPROVED', 'ERROR'])
+    tfne_queues = {f'TFNE V{version} PILOT':version for version in ARTIFACT_VERSIONS}
+    queue = st.sidebar.selectbox('Review queue', cohort_dashboard.FILTERS+list(tfne_queues))
     # Canonical JSON reads are cached by file signature; PDFs stay lazy until selection.
-    statuses = {}
+    statuses, cohort_rows = {}, []
+    from review_app.config import STABLE_ROOT
+    registry_path = STABLE_ROOT / 'validation_cohort.json'
+    registry = read_json(registry_path) if registry_path.exists() else {}
+    from review_app import eeg_holdout
+    holdout_cohort=eeg_holdout.registry(STABLE_ROOT)
     for pid in sorted(index):
         try:
+            stable_manifest = next((path for path in index[pid] if read_json(path).get('storage')=='STABLE'), None)
+            if stable_manifest:
+                manifest = read_json(stable_manifest)
+                reference = registry.get('reference_versions',{}).get(pid) if stable_manifest.parent.parent.resolve()==STABLE_ROOT.resolve() else None
+                row = cohort_dashboard.patient_summary(pid,manifest,repo,reference)
+                row = eeg_holdout.enrich(row,cohort_dashboard.pick_entry(manifest,'eeg'),repo,holdout_cohort)
+                cohort_rows.append(row);statuses[pid]=row['status']
+                continue
             ps, pl, pe = load_snapshot(index[pid])
             ph = {m: module_hash(e) for m, e in ps.items() if m in ('diagnoses', 'events', 'medications')}
             pr = patient_overview.module_rows(ps, pl, ph, repo, pid)
@@ -60,10 +76,12 @@ def main():
             statuses[pid] = patient_overview.patient_status(pr, has_reviews, bool(pe))
         except (OSError, ValueError, KeyError, TypeError):
             statuses[pid] = 'ERROR'
-    options = [p for p in sorted(index) if queue == 'ALL PATIENTS' or
-               (queue == 'UNREVIEWED' and statuses[p] == 'NOT_REVIEWED') or
-               (queue == 'REVIEW REQUIRED' and statuses[p] in ('NOT_REVIEWED', 'REVIEW_REQUIRED', 'IN_REVIEW', 'STALE')) or
-               statuses[p] == queue]
+    for pid in sorted(index):
+        if pid not in {r['patient_id'] for r in cohort_rows}:
+            cohort_rows.append(dict(patient_id=pid,status=statuses[pid],AF_state='UNKNOWN',modules={},review_required=0))
+    cohort_dashboard.render(cohort_rows)
+    tfne_version = tfne_queues.get(queue)
+    options = [r['patient_id'] for r in cohort_rows if ((STABLE_ROOT/r['patient_id']/ARTIFACT_VERSIONS[tfne_version]).exists() if tfne_version else cohort_dashboard.matches(r,queue))]
     st.sidebar.caption(f'{len(index)} patients with module artifacts')
     if not options:
         st.info('No patients match this queue.')
@@ -71,6 +89,8 @@ def main():
     patient = st.sidebar.selectbox('Patient ID', options, format_func=lambda p: f'{p} · {statuses[p]}', key='patient_picker')
     try:
         selected, latest, errors = load_snapshot(index[patient])
+        if 'events' not in latest and latest.get('diagnoses',{}).get('status')=='CANDIDATE':
+            latest['events'] = dict(latest['diagnoses'],module='events')
         # Recheck all current bytes on every interaction; cached JSON cannot hide a changed extraction.
         hashes = {}
         for module, entry in list(selected.items()):
@@ -86,7 +106,7 @@ def main():
         signatures = tuple((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in pdf_dir.glob('*.pdf'))
         docs = pdf_index(patient, context['documents'], signatures)
         rows = patient_overview.module_rows(selected, latest, hashes, repo, patient)
-        reviewed = any(repo.load(patient, m) for m in ('diagnoses', 'medications'))
+        reviewed = any(repo.load(patient, m) for m in ('diagnoses', 'medications', 'eeg'))
         status = patient_overview.patient_status(rows, reviewed, bool(errors))
         st.session_state[f'{patient}:status'] = status
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -127,16 +147,22 @@ def main():
         else:
             st.warning('No local PDFs available for this patient.')
     with right:
-        tabs = st.tabs(['Overview', 'Diagnoses & Events', 'Medications', 'CAA', 'Neurosonology', 'Clinical Scales', 'Risk Scores', 'OAC Decisions'])
+        tabs = st.tabs(['Overview', 'Diagnoses', 'Medications', 'EEG', 'CAA', 'Neurosonology', 'Clinical Scales', 'Risk Scores', 'OAC Decisions', 'TFNE / Neurological Deficits'])
         with tabs[0]:
             patient_overview.render(rows)
         with tabs[1]:
             workbench.render('diagnoses', selected, hashes, repo, patient, docs)
         with tabs[2]:
             workbench.render('medications', selected, hashes, repo, patient, docs)
-        for tab, names in zip(tabs[3:], [['CAA'], ['neurosonology'], ['clinical_scales', 'EEG'], ['CHA2DS2_VA', 'ORBIT'], ['OAC_decision_analysis']]):
+        with tabs[3]:
+            holdout_entry=eeg_holdout.archived_candidate(patient,holdout_cohort) if queue=='EEG V1.1 HOLDOUT' else None
+            if holdout_entry:
+                eeg.render(holdout_entry,repo,patient,docs,preferred_version=holdout_entry['version'])
+            else:eeg.render(selected.get('eeg',latest.get('eeg')),repo,patient,docs)
+        for tab, names in zip(tabs[4:], [['CAA'], ['neurosonology'], ['clinical_scales'], ['CHA2DS2_VA', 'ORBIT'], ['OAC_decision_analysis']]):
             with tab:
                 future_modules.render(names, selected, latest)
+        with tabs[-1]:tfne.render(patient,docs,preferred_version=tfne_version)
 
 
 main()

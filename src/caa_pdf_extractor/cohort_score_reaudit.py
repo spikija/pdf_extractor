@@ -369,7 +369,7 @@ def finish(source,previous,out,bypid,docs,encounters,units,scales,episodes,event
     decisionmap={d['decision_id']:d for d in decisions}; cha=[]; unknown=[]; components=[]
     # Only already confirmed AF rows. No AF rediscovery or uncertain-AF scoring.
     for old in oldcha:
-        if old.get('applicable')!='True': continue
+        if old.get('applicable')!='True' or old.get('AF_state')!='CONFIRMED_AF': continue
         pid=old['patient_id']; day=old['score_index_date']; parts=unpack(old['components'],{})
         available=unpack(old.get('component_evidence'),{}); dec=decisionmap.get(old['index_id'])
         afref=available.get('AF',{}); afday=old.get('af_index_date')

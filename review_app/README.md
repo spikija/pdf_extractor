@@ -1,4 +1,24 @@
-# Local physician extraction workbench ? Stage 1
+# Local physician extraction workbench
+
+Diagnosis architecture vNext: [4.3 candidate report](DIAGNOSIS_ARCHITECTURE_VNEXT_REPORT.md).
+The nine affected patients now have unified Patient diagnoses, Clinical events and Admissions sections.
+Explicit diagnosis runs use local Granite on complete discharge summaries for probable admission reasons.
+Browsing is read-only; these inferences remain separate and require physician adjudication.
+
+The seven audited patients now have repaired diagnosis/event 4.2 and medication 3.1 candidates.
+See the [repair report](../data/debug/physician_failure_repair_20261026T190001_368626Z/repair_summary.md)
+and [implementation notes](../docs/physician_failure_repairs.md). Refresh the artifact index to review
+the newest candidates. Active versions and physician decisions are preserved.
+
+Current validation phase: [20-patient validation report](TWENTY_PATIENT_VALIDATION_REPORT.md).
+The original five physician-reviewed references are preserved. Fifteen new patients have candidate-only
+diagnosis/event and medication outputs; two diagnosis candidates are held after independent QA failures.
+Historical five-patient results: [V4.1 report](FIVE_PATIENT_DIAGNOSIS_V4_1_REPORT.md).
+
+An AF assertion safety repair supersedes the clinical readiness of affected historical V4 revisions.
+See [AF_ASSERTION_FIX_REPORT.md](AF_ASSERTION_FIX_REPORT.md). Unsafe AF identities are visibly
+suppressed, affected reviews remain stale, and bad candidates cannot be promoted. No patient
+diagnosis extraction was rerun during that AF-only repair. Current explicit runs use diagnosis code 4.3.
 
 Launch from `C:\app\pdf_extractor`:
 
@@ -13,17 +33,34 @@ The server binds to loopback and disables usage statistics. Patient data stays l
 
 ## Scope and source inputs
 
-Stage 1 supports diagnosis/event V4 and medication V3 reruns for exactly these pilot patients:
-`2435608415`, `2459345815`, `2552817617`, `2684469520`, `2826947422`.
-There is no batch/cohort extraction interface, and the shared runner rejects every non-pilot ID,
-patient list and unsupported module. Patient selection, page navigation and ordinary rerendering
-never execute extraction. CAA, neurosonology, EEG, scales, scores and OAC tabs remain read-only.
+Diagnosis/event V4.3 and medication V3.1 reruns are enabled only for patients registered in
+`data/patient_artifacts/validation_cohort.json`, with a hard limit of 20. The original five form the
+immutable reference regression set; fifteen heterogeneous new patients form the second validation set.
+There is no batch extraction button. The single-patient runner rejects unregistered IDs,
+patient lists and unsupported modules. Patient selection, page navigation and ordinary rerendering
+never execute extraction. CAA, neurosonology, scales, scores and OAC tabs remain read-only.
+
+The EEG tab exposes EEG 1.1 candidates for the same separate 20-patient validation subset, with
+structured focus/spread, pattern, reactivity, assessability and evidence-status displays.
+The revision selector preserves EEG 1.0 and its separate reviews. EEG promotion stays disabled.
+See [EEG 1.1 implementation](../docs/eeg_v1_1.md), [current results](EEG_V1_1_REPORT.md),
+and the [historical EEG 1.0 results](EEG_VALIDATION_REPORT.md).
 
 A rerun executes the existing `diagnosis_events_v4.assemble` or `medication_identity_v3.assemble`;
 there is no duplicate extraction implementation in the UI. It reassembles saved source sections,
 mentions and medication rows, as the existing V4/V3 runners do. It does not rerun OCR/PDF parsing
 or upstream extraction. Saved inputs and source PDF SHA-256 hashes must match, or execution stops.
 Changed PDFs require a separately refreshed upstream source snapshot.
+Diagnosis runs additionally infer probable admission reasons from complete saved summary narratives
+using local Granite. These remain a separate reviewed layer. Medication runs select bounded source
+rows from saved prepared sections before normalization.
+
+The cohort dashboard reports patient and module statuses. Filters include unreviewed, in review,
+review required, approved, stale, error and diagnosis-layer resolved AF states. Candidate-only patients
+open their candidate dataset by default. Frozen reference approval reflects the physician review reported
+by the user; current/validated pointers and individual adjudications remain unchanged. Duplicate event
+IDs expose every raw source row with separate inspection keys; ambiguous rows cannot be adjudicated,
+and duplicate canonical IDs block promotion even without a pre-existing QA annotation.
 
 ## Stable storage and migration
 
@@ -33,18 +70,19 @@ The authoritative root is `data/patient_artifacts/<patient_id>/`:
 module_manifest.json
 sources/<input-digest>/                    # immutable copies of the five required source inputs
 diagnoses/v4.0/                           # migrated existing V4, when available
-diagnoses/v4.0+<timestamp>-<run-id>/       # newly generated candidate revision
+diagnoses/v4.3+<timestamp>-<run-id>/       # newly generated candidate revision
 medications/v3.0/
-medications/v3.0+<timestamp>-<run-id>/
+medications/v3.1+<timestamp>-<run-id>/
 .runs/<run-id>/request.json
+.runs/<run-id>/admission_model_results.json # diagnosis runs only
 .runs/<run-id>/result.json
 ```
 
 Each module directory contains clinical JSON/CSV artifacts and `module_metadata.json`.
 Migration retains original artifact filenames and exact bytes so existing physician review hashes
 remain valid. Candidate artifacts use unversioned layer filenames inside their version directory.
-The algorithm version remains **4.0** or **3.0**; `+<run-id>` identifies a rerun rather than claiming
-an algorithm change. Version selection is driven by the manifest, not hard-coded version numbers.
+Historical algorithm versions are retained. Current algorithms are **4.3** and **3.1**;
+`+<run-id>` identifies a new revision. Version selection is driven by the manifest, not hard-coded numbers.
 
 The stable manifest has `storage: STABLE`, a `modules` dictionary, and per-module
 `active_validated_version`, `available_versions` and `versions`. Only the active pointer selects
@@ -130,6 +168,8 @@ The app writes only new stable module/source files and mutable stable manifests/
 `data/debug/review_app/`. It has no clinical database write interface. The offline extraction subprocess
 blocks socket/database access, child processes, deletion and writes outside its fresh execution directory.
 No cloud models/services run. Local medication dictionary files are read-only; suggestions remain separate.
+Explicit diagnosis runs contact the installed local Granite service through numeric loopback only.
+The model results are snapshotted before the offline worker starts; ordinary browsing makes no model calls.
 
 PDF pages render locally with PyMuPDF. Evidence navigation selects exact document/page; invalid references
 show an error. No text highlighting or keyboard shortcuts. Structured edits use JSON inputs. Current and
@@ -138,6 +178,17 @@ candidate table rows use separate item selectors. A large evidence set may creat
 Artifact discovery is cached for 30 seconds; **Refresh artifact index** clears the UI cache. File-signature
 caches avoid repeatedly parsing stable clinical JSON; PDF rendering stays lazy. Workbench reads are
 read-only. No browser-pixel screenshot was taken; functional UI coverage uses Streamlit AppTest.
+
+## EEG v1.1 fresh holdout
+
+Select **EEG V1.1 HOLDOUT** in **Review queue** after refreshing the artifact index.
+The 12 new patients have EEG v1.1 candidates only; all start UNREVIEWED and promotion
+is disabled. The EEG tab shows the independent source inventory, exact page links and
+source-comparison review flags, alongside standard explicit review actions.
+The holdout has 43 source recordings and 42 candidate records, with 38 distinct source
+recordings matched (88.4% recall). Five missed recordings, duplicate/false records and
+other safety discrepancies are retained for physician review. Frozen extraction logic
+was not tuned or rerun. See [the holdout report](EEG_V1_1_HOLDOUT_REPORT.md).
 
 ## Validation
 

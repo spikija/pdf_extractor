@@ -47,7 +47,7 @@ def test_five_patient_ui_navigation_and_persistence(monkeypatch):
     raw = diagnosis_entities(selected['diagnoses'])[0]
     evidence = evidence_for(raw, selected['diagnoses'])[0]
     expected_page = int(evidence['page'])
-    next(b for b in at.button if b.label == 'Open source').click().run()
+    next(b for b in at.button if b.label == 'Open source' and ':diagnoses:' in str(b.key) and ':source:' in str(b.key)).click().run()
     assert not at.exception
     assert at.session_state[f'{patient}:page'] == expected_page
     assert at.session_state[f'{patient}:active'] == raw['entity_id']

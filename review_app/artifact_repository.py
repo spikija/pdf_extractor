@@ -57,7 +57,11 @@ def select_modules(paths):
         # Stable pointers are authoritative, even for missing/corrupt/stale modules.
         # Never resurrect debug data behind a physician's active-version decision.
         path, manifest = sorted(stable, key=lambda p: str(p[0]))[-1]
-        return active_entries(manifest)
+        selected, latest, errors = active_entries(manifest)
+        for module, entry in latest.items():
+            reason = manifest['modules'].get(module,{}).get('candidate_qa_holds',{}).get(entry['version'])
+            if reason:entry['qa_hold']=reason
+        return selected, latest, errors
     paths = debug
     snapshots, errors = [], []
     for path in paths:
@@ -91,7 +95,10 @@ def select_modules(paths):
 def module_hash(entry):
     # Actual bytes, across all module files, rather than an upstream source hash.
     files = sorted(entry['artifacts'], key=lambda f: f['path'])
-    return hashlib.sha256(''.join(sha(f['path']) for f in files).encode()).hexdigest()
+    value = ''.join(sha(f['path']) for f in files)
+    if entry.get('assertion_safety'):
+        value += json.dumps(entry['assertion_safety'], sort_keys=True)
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def layer(entry, prefix):

@@ -24,7 +24,7 @@ def load_layer(entry, prefixes):
 def semantic_entities(entry, module):
     result = []
     if module == 'diagnoses':
-        for row in load_layer(entry, ('canonical_disease_identities', 'canonical_diagnoses')):
+        for row in (load_layer(entry,('patient_diagnoses',)) or load_layer(entry, ('canonical_disease_identities', 'canonical_diagnoses'))):
             result.append(dict(kind='DISEASE', anchor=row['canonical_name'],
                                value={k: row.get(k) for k in DISEASE_FIELDS}, evidence=set(row.get('source_evidence_ids', row.get('evidence_ids', [])))))
         for row in load_layer(entry, ('canonical_clinical_events',)):
@@ -32,6 +32,10 @@ def semantic_entities(entry, module):
             anchor = '|'.join(str(row.get(k) or '?') for k in ('event_type', 'event_date', 'side', 'territory', 'location'))
             result.append(dict(kind='EVENT', anchor=anchor, value=value,
                                evidence=set(row.get('source_evidence_ids', row.get('evidence_ids', [])))))
+        for row in load_layer(entry,('admission_clinical_summary',)):
+            result.append(dict(kind='ADMISSION',anchor=row['encounter_id'],value={k:row.get(k) for k in
+                ('admission_date','probable_admission_diagnosis','probable_admission_event_type','confidence','admission_event_id')},
+                evidence=set(row.get('supporting_evidence_ids',[]))))
     else:
         canonical = load_layer(entry, ('canonical_medications',))
         mentions = {r['mention_id']: r for r in load_layer(entry, ('medication_mentions',))}

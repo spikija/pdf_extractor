@@ -198,7 +198,8 @@ def run(source, previous, output, protect=True):
             if name=='counts':
                 continue
             artifacts[name+'_v4.json'] = rows
-            artifacts[name+'_v4.csv'] = csv_text(rows)
+            if isinstance(rows, list):
+                artifacts[name+'_v4.csv'] = csv_text(rows)
         source_hash = digest([sha(source/pid/f) for f in ('source_bundle.json','source_mentions.json')] + list(code_hashes.values()))
         manifest['diagnoses'] = store.publish(pid,'diagnoses','4.0',artifacts,source_hash,
             status='VALIDATED' if passed else 'FAILED_VALIDATION', validation={'hard_gates':gates,'physician_approved':False})
